@@ -10,12 +10,41 @@ import { prisma } from "@/lib/prisma";
 const router = Router();
 router.use(requireAuth);
 
+const ME_SELECT = {
+  id: true,
+  phone: true,
+  name: true,
+  email: true,
+  nationalCode: true,
+  address: true,
+  cityId: true,
+  zip: true,
+  fax: true,
+  job: true,
+  education: true,
+  birthDay: true,
+  birthMonth: true,
+  birthYear: true,
+  emergencyPhone: true,
+  contactPhone: true,
+  avatarUrl: true,
+  nationalCardUrl: true,
+  description: true,
+  verificationStatus: true,
+  isHost: true,
+  role: true,
+  createdAt: true,
+  updatedAt: true,
+  bankAccount: true,
+  city: { include: { province: true } },
+} as const;
+
 router.get(
   "/me",
   asyncHandler(async (req, res) => {
     const user = await prisma.user.findUniqueOrThrow({
       where: { id: req.user!.sub },
-      include: { bankAccount: true, city: true },
+      select: ME_SELECT,
     });
     return ok(res, user);
   })
@@ -46,7 +75,11 @@ router.patch(
   "/me",
   validate(updateProfileSchema),
   asyncHandler(async (req, res) => {
-    const user = await prisma.user.update({ where: { id: req.user!.sub }, data: req.body });
+    const user = await prisma.user.update({
+      where: { id: req.user!.sub },
+      data: req.body,
+      select: ME_SELECT,
+    });
     return ok(res, user);
   })
 );

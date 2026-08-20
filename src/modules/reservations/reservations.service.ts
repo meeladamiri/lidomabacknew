@@ -246,28 +246,40 @@ export async function createReservation(
 
       // Can't use upsert's compound-unique `where` here — Prisma/Postgres unique
       // lookups don't match on NULL, and `roomId` is null for whole-residence days.
-      for (const day of days) {
-        const existing = await tx.calendarDay.findFirst({
-          where: { residenceId: day.residenceId, roomId: day.roomId, date: day.date },
-          select: { id: true },
-        });
+      // Batched into 3 queries total (instead of one findFirst+create/update per day)
+      // so this doesn't blow the transaction timeout against a remote DB.
+      const existingDays = await tx.calendarDay.findMany({
+        where: {
+          residenceId: residence.id,
+          roomId: null,
+          date: { in: days.map((d) => d.date) },
+        },
+        select: { id: true, date: true },
+      });
+      const existingIds = existingDays.map((d) => d.id);
+      const existingDates = new Set(existingDays.map((d) => d.date.getTime()));
+      const newDays = days.filter((d) => !existingDates.has(d.date.getTime()));
 
-        if (existing) {
-          await tx.calendarDay.update({ where: { id: existing.id }, data: { isBlocked: true } });
-        } else {
-          await tx.calendarDay.create({
-            data: {
-              residenceId: day.residenceId,
-              roomId: day.roomId,
-              date: day.date,
-              isBlocked: day.isBlocked,
-            },
-          });
-        }
+      if (existingIds.length > 0) {
+        await tx.calendarDay.updateMany({
+          where: { id: { in: existingIds } },
+          data: { isBlocked: true },
+        });
+      }
+      if (newDays.length > 0) {
+        await tx.calendarDay.createMany({
+          data: newDays.map((day) => ({
+            residenceId: day.residenceId,
+            roomId: day.roomId,
+            date: day.date,
+            isBlocked: day.isBlocked,
+          })),
+        });
       }
 
       return created;
-    }
+    },
+    { timeout: 15000 }
   );
 
   return {

@@ -46,28 +46,37 @@ export async function updateCalendar(
 
   // Can't use upsert's compound-unique `where` here — Prisma/Postgres unique lookups
   // don't match on NULL, and `roomId` is null for whole-residence (non-room-specific) days.
-  await prisma.$transaction(async (tx) => {
-    for (const dateStr of data.dates) {
-      const date = new Date(dateStr);
-      const existing = await tx.calendarDay.findFirst({
-        where: { residenceId, roomId, date },
-        select: { id: true },
-      });
+  // Batched into 3 queries total (instead of one findFirst+create/update per date) so
+  // this doesn't blow the transaction timeout against a remote DB.
+  const dates = data.dates.map((d) => new Date(d));
 
-      if (existing) {
-        await tx.calendarDay.update({
-          where: { id: existing.id },
-          data: {
-            ...(data.isBlocked !== undefined ? { isBlocked: data.isBlocked } : {}),
-            ...(data.isFast !== undefined ? { isFast: data.isFast } : {}),
-            ...(data.specialPrice !== undefined ? { specialPrice: data.specialPrice } : {}),
-            ...(data.discountAmount !== undefined ? { discountAmount: data.discountAmount } : {}),
-            ...(data.discountType !== undefined ? { discountType: data.discountType } : {}),
-          },
+  await prisma.$transaction(
+    async (tx) => {
+      const existingDays = await tx.calendarDay.findMany({
+        where: { residenceId, roomId, date: { in: dates } },
+        select: { id: true, date: true },
+      });
+      const existingIds = existingDays.map((d) => d.id);
+      const existingDates = new Set(existingDays.map((d) => d.date.getTime()));
+      const newDates = dates.filter((d) => !existingDates.has(d.getTime()));
+
+      const updateData = {
+        ...(data.isBlocked !== undefined ? { isBlocked: data.isBlocked } : {}),
+        ...(data.isFast !== undefined ? { isFast: data.isFast } : {}),
+        ...(data.specialPrice !== undefined ? { specialPrice: data.specialPrice } : {}),
+        ...(data.discountAmount !== undefined ? { discountAmount: data.discountAmount } : {}),
+        ...(data.discountType !== undefined ? { discountType: data.discountType } : {}),
+      };
+
+      if (existingIds.length > 0) {
+        await tx.calendarDay.updateMany({
+          where: { id: { in: existingIds } },
+          data: updateData,
         });
-      } else {
-        await tx.calendarDay.create({
-          data: {
+      }
+      if (newDates.length > 0) {
+        await tx.calendarDay.createMany({
+          data: newDates.map((date) => ({
             residenceId,
             roomId,
             date,
@@ -76,11 +85,12 @@ export async function updateCalendar(
             specialPrice: data.specialPrice,
             discountAmount: data.discountAmount,
             discountType: data.discountType,
-          },
+          })),
         });
       }
-    }
-  });
+    },
+    { timeout: 15000 }
+  );
 
   return { success: true };
 }

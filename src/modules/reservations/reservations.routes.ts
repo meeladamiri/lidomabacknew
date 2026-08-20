@@ -5,6 +5,7 @@ import { requireAuth, requireHost } from "@/middleware/auth";
 import {
   cancelReservationSchema,
   createReservationSchema,
+  guestCancelReservationSchema,
   rejectReservationSchema,
   reservationIdParamSchema,
 } from "./reservations.schema";
@@ -17,7 +18,11 @@ router.use(requireAuth);
 router.post("/", validate(createReservationSchema), asyncHandler(controller.create));
 router.get("/mine", asyncHandler(controller.mine));
 router.get("/:id", validate(reservationIdParamSchema), asyncHandler(controller.detail));
-router.post("/:id/cancel", validate(cancelReservationSchema), asyncHandler(controller.guestCancel));
+router.post(
+  "/:id/cancel",
+  validate(guestCancelReservationSchema),
+  asyncHandler(controller.guestCancel)
+);
 
 // Host-facing, mounted at /api/host/reservations
 const hostRouter = Router();

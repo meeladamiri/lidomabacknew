@@ -34,3 +34,12 @@ export const cancelReservationSchema = z.object({
     desc: z.string().optional(),
   }),
 });
+
+// Guests pick from a free-text, multi-select list of reasons in the UI (not the
+// fixed host-side category system), so this only requires a non-empty string.
+export const guestCancelReservationSchema = z.object({
+  params: z.object({ id: z.coerce.number().int() }),
+  body: z.object({
+    reason: z.string().min(1).optional(),
+  }),
+});

@@ -1,0 +1,5 @@
+{
+  "platform": "node",
+  "app": "lidoma",
+  "port": 3000
+}

@@ -1,0 +1,507 @@
+// LidomaTrip backend — Phase 1 schema
+// Scope: auth, users, residences/rooms, amenities/rules, calendar & pricing,
+// search support, reservations, favourites, host bank info, admin.
+// Phase 2 (not modeled yet): wallet transactions, host payouts/settlements,
+// order-scoped chat, reviews, complaints/contact-form, support chat, vouchers.
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- Enums ----------
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum VerificationStatus {
+  NOT_CONFIRMED
+  CHECKING
+  CONFIRMED
+}
+
+enum ResidenceType {
+  BOOMGARDI // eco-lodge / rural stay
+  SUIT // apartment / suite
+}
+
+enum ResidenceState {
+  DRAFT // wizard in progress, not submitted
+  PENDING // submitted, awaiting review
+  PUBLISHED
+  REJECTED
+  DEACTIVATED
+  DELETED
+}
+
+enum BedRoomType {
+  NONE
+  SHARED
+  DEDICATED
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED_PRICE
+}
+
+enum AmenityFieldType {
+  TEXT
+  DROPDOWN
+  SWITCH
+  CHECKBOX
+}
+
+enum ReservationState {
+  HOST_APPROVAL
+  SECOND_PAYMENT
+  DONE
+  CANCEL
+  EXPIRED
+}
+
+enum ReservationCancelledBy {
+  HOST_CANCELLED
+  LIDOMA_CANCELLED
+  GUEST_CANCELLED
+}
+
+enum OtpPurpose {
+  LOGIN
+  SIGNUP
+  RESET_PASSWORD
+}
+
+// ---------- Geo ----------
+
+model Province {
+  id        Int      @id @default(autoincrement())
+  name      String
+  latitude  Float?
+  longitude Float?
+  cities    City[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("provinces")
+}
+
+model City {
+  id         Int         @id @default(autoincrement())
+  name       String
+  titleEn    String?     @map("title_en")
+  imageUrl   String?     @map("image_url")
+  latitude   Float?
+  longitude  Float?
+  provinceId Int?        @map("province_id")
+  province   Province?   @relation(fields: [provinceId], references: [id])
+  residences Residence[]
+  users      User[]
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  @@index([provinceId])
+  @@map("cities")
+}
+
+// ---------- Users ----------
+
+model User {
+  id                 Int                 @id @default(autoincrement())
+  phone              String              @unique
+  passwordHash       String?             @map("password_hash")
+  name               String?
+  email              String?
+  nationalCode       String?             @map("national_code")
+  address            String?
+  cityId             Int?                @map("city_id")
+  city               City?               @relation(fields: [cityId], references: [id])
+  zip                String?
+  fax                String?
+  job                String?
+  education          String?
+  birthDay           Int?                @map("birth_day")
+  birthMonth         Int?                @map("birth_month")
+  birthYear          Int?                @map("birth_year")
+  emergencyPhone     String?             @map("emergency_phone")
+  contactPhone       String?             @map("contact_phone")
+  avatarUrl          String?             @map("avatar_url")
+  nationalCardUrl    String?             @map("national_card_url")
+  description        String?
+  verificationStatus VerificationStatus  @default(NOT_CONFIRMED) @map("verification_status")
+  isHost             Boolean             @default(false) @map("is_host")
+  role               UserRole            @default(USER)
+
+  bankAccount   BankAccount?
+  residences    Residence[]     @relation("HostResidences")
+  reservationsAsGuest Reservation[] @relation("GuestReservations")
+  reservationsAsHost  Reservation[] @relation("HostReservations")
+  favourites    Favourite[]
+  otpCodes      OtpCode[]
+  refreshTokens RefreshToken[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([cityId])
+  @@map("users")
+}
+
+model BankAccount {
+  id             Int      @id @default(autoincrement())
+  userId         Int      @unique @map("user_id")
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cardNumber     String?  @map("card_number")
+  cardOwnerName  String?  @map("card_owner_name")
+  shabaNumber    String?  @map("shaba_number")
+  shabaOwnerName String?  @map("shaba_owner_name")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@map("bank_accounts")
+}
+
+model OtpCode {
+  id         Int        @id @default(autoincrement())
+  phone      String
+  userId     Int?       @map("user_id")
+  user       User?      @relation(fields: [userId], references: [id])
+  codeHash   String     @map("code_hash")
+  purpose    OtpPurpose
+  attempts   Int        @default(0)
+  expiresAt  DateTime   @map("expires_at")
+  consumedAt DateTime?  @map("consumed_at")
+  createdAt  DateTime   @default(now())
+
+  @@index([phone, purpose])
+  @@map("otp_codes")
+}
+
+model RefreshToken {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique @map("token_hash")
+  expiresAt DateTime @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+// ---------- Amenities & Rules (catalogs) ----------
+
+model Amenity {
+  id         Int               @id @default(autoincrement())
+  category   String?
+  name       String
+  iconUrl    String?           @map("icon_url")
+  features   AmenityFeature[]
+  residences ResidenceAmenity[]
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+
+  @@map("amenities")
+}
+
+model AmenityFeature {
+  id          Int              @id @default(autoincrement())
+  amenityId   Int              @map("amenity_id")
+  amenity     Amenity          @relation(fields: [amenityId], references: [id], onDelete: Cascade)
+  fieldType   AmenityFieldType @map("field_type")
+  name        String
+  placeholder String?
+  values      String? // comma-separated option list, e.g. "دارد, ندارد"
+  inFilter    Boolean          @default(false) @map("in_filter")
+
+  @@index([amenityId])
+  @@map("amenity_features")
+}
+
+model Rule {
+  id         Int            @id @default(autoincrement())
+  category   String?
+  name       String
+  iconUrl    String?        @map("icon_url")
+  residences ResidenceRule[]
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  @@map("rules")
+}
+
+// ---------- Residences ----------
+
+model Residence {
+  id          Int            @id @default(autoincrement())
+  reference   String         @unique
+  hostId      Int            @map("host_id")
+  host        User           @relation("HostResidences", fields: [hostId], references: [id])
+  type        ResidenceType
+  state       ResidenceState @default(DRAFT)
+  step        Int?
+  completionPercent Int?     @map("completion_percent")
+  published   Boolean        @default(false)
+
+  name        String
+  name2       String?
+  description String?
+
+  cityId       Int?    @map("city_id")
+  city         City?   @relation(fields: [cityId], references: [id])
+  neighborhood String?
+  address      String?
+  latitude     Float?
+  longitude    Float?
+  floor        String?
+  foundationArea Float? @map("foundation_area")
+  totalArea      Float? @map("total_area")
+
+  capacity    Int?
+  maxCapacity Int?    @map("max_capacity")
+
+  checkinFrom  String? @map("checkin_from")
+  checkinTo    String? @map("checkin_to")
+  checkout     String?
+  minReservableDays Int? @map("min_reservable_days")
+
+  cancelCommission  Float?  @map("cancel_commission")
+  reserveCommission Float?  @map("reserve_commission")
+  cancellationPolicyDesc String? @map("cancellation_policy_desc")
+  fullReturnTime          Int?    @map("full_return_time")
+  beforeStartTime         Int?    @map("before_start_time")
+  hostShareTotalAmount    Float?  @map("host_share_total_amount")
+  hostSharePastNights     Float?  @map("host_share_past_nights")
+  hostShareFutureNights   Float?  @map("host_share_future_nights")
+
+  // General pricing (per-residence baseline; rooms may override)
+  weekPrice          Float?  @map("week_price")
+  weekendPrice       Float?  @map("weekend_price")
+  peakPrice          Float?  @map("peak_price")
+  extraPrice         Float?  @map("extra_price")
+  extraGuestsPrice    Float? @map("extra_guests_price")
+  weeklyDiscount     Float?  @map("weekly_discount")
+  monthlyDiscount    Float?  @map("monthly_discount")
+
+  videoUrl    String? @map("video_url")
+  isFast      Boolean @default(false) @map("is_fast") // instant-book default
+  isFull      Boolean @default(false) @map("is_full")
+  isOffer     Boolean @default(false) @map("is_offer")
+  salesCount  Int     @default(0) @map("sales_count")
+
+  averageRating Float @default(0) @map("average_rating")
+  reviewsCount  Int   @default(0) @map("reviews_count")
+
+  images       ResidenceImage[]
+  rooms        Room[]
+  amenities    ResidenceAmenity[]
+  rules        ResidenceRule[]
+  calendarDays CalendarDay[]
+  reservations Reservation[]
+  favouritedBy Favourite[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([hostId])
+  @@index([cityId])
+  @@index([state, published])
+  @@map("residences")
+}
+
+model ResidenceImage {
+  id          Int       @id @default(autoincrement())
+  residenceId Int       @map("residence_id")
+  residence   Residence @relation(fields: [residenceId], references: [id], onDelete: Cascade)
+  url         String
+  title       String?
+  sortOrder   Int       @default(0) @map("sort_order")
+  isMain      Boolean   @default(false) @map("is_main")
+  createdAt   DateTime  @default(now())
+
+  @@index([residenceId])
+  @@map("residence_images")
+}
+
+model Room {
+  id          Int       @id @default(autoincrement())
+  residenceId Int       @map("residence_id")
+  residence   Residence @relation(fields: [residenceId], references: [id], onDelete: Cascade)
+
+  name        String
+  description String?
+  image       String?
+
+  capacity    Int?
+  maxCapacity Int?  @map("max_capacity")
+  singleBed   Int   @default(0) @map("single_bed")
+  doubleBed   Int   @default(0) @map("double_bed")
+  traditionalBed Int @default(0) @map("traditional_bed")
+  extraBeds   Int   @default(0) @map("extra_beds")
+
+  weekPrice        Float? @map("week_price")
+  weekendPrice     Float? @map("weekend_price")
+  peakPrice        Float? @map("peak_price")
+  extraPrice       Float? @map("extra_price")
+  extraPeakPrice   Float? @map("extra_peak_price")
+  weeklyDiscount   Float? @map("weekly_discount")
+  monthlyDiscount  Float? @map("monthly_discount")
+
+  coolingSystem    Boolean?    @map("cooling_system")
+  heatingSystem    Boolean?    @map("heating_system")
+  refrigerator     BedRoomType?
+  wc               BedRoomType?
+  separateBathroom Boolean?    @map("separate_bathroom")
+  freeBreakfast    Boolean?    @map("free_breakfast")
+
+  isFast     Boolean @default(false) @map("is_fast")
+  salesCount Int     @default(0) @map("sales_count")
+
+  calendarDays      CalendarDay[]
+  reservationRooms  ReservationRoom[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([residenceId])
+  @@map("rooms")
+}
+
+model ResidenceAmenity {
+  id            Int       @id @default(autoincrement())
+  residenceId   Int       @map("residence_id")
+  residence     Residence @relation(fields: [residenceId], references: [id], onDelete: Cascade)
+  amenityId     Int       @map("amenity_id")
+  amenity       Amenity   @relation(fields: [amenityId], references: [id])
+  extraFeatures Json?     @map("extra_features") // selected feature values keyed by feature name
+
+  @@unique([residenceId, amenityId])
+  @@index([amenityId])
+  @@map("residence_amenities")
+}
+
+model ResidenceRule {
+  id          Int       @id @default(autoincrement())
+  residenceId Int       @map("residence_id")
+  residence   Residence @relation(fields: [residenceId], references: [id], onDelete: Cascade)
+  ruleId      Int       @map("rule_id")
+  rule        Rule      @relation(fields: [ruleId], references: [id])
+  value       Json? // override / description text for this residence
+
+  @@unique([residenceId, ruleId])
+  @@index([ruleId])
+  @@map("residence_rules")
+}
+
+// ---------- Calendar & pricing overrides ----------
+
+model CalendarDay {
+  id            Int           @id @default(autoincrement())
+  residenceId   Int           @map("residence_id")
+  residence     Residence     @relation(fields: [residenceId], references: [id], onDelete: Cascade)
+  roomId        Int?          @map("room_id") // null = applies at residence level
+  room          Room?         @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  date          DateTime      @db.Date
+  isBlocked     Boolean       @default(false) @map("is_blocked") // reserved / manually filled
+  isFast        Boolean?      @map("is_fast") // instant-book override for this date
+  isPeak        Boolean       @default(false) @map("is_peak")
+  specialPrice  Float?        @map("special_price")
+  discountAmount Float?       @map("discount_amount")
+  discountType  DiscountType? @map("discount_type")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // NOTE: Postgres does not enforce uniqueness across NULLs, so this
+  // constraint does not fully prevent duplicate residence-level
+  // (roomId = null) rows under concurrent writes. Fine for single-host
+  // sequential updates (the only write path today); if concurrent bulk
+  // calendar edits become common, replace with a sentinel roomId or a
+  // partial unique index (`WHERE room_id IS NULL`) via a raw migration.
+  @@unique([residenceId, roomId, date])
+  @@index([residenceId, date])
+  @@map("calendar_days")
+}
+
+// ---------- Reservations ----------
+
+model Reservation {
+  id        Int    @id @default(autoincrement())
+  reference String @unique
+
+  residenceId Int       @map("residence_id")
+  residence   Residence @relation(fields: [residenceId], references: [id])
+  guestId     Int       @map("guest_id")
+  guest       User      @relation("GuestReservations", fields: [guestId], references: [id])
+  hostId      Int       @map("host_id")
+  host        User      @relation("HostReservations", fields: [hostId], references: [id])
+
+  startDate  DateTime @map("start_date") @db.Date
+  endDate    DateTime @map("end_date") @db.Date
+  expiryDate DateTime? @map("expiry_date") // payment/approval deadline
+  daysCount  Int      @map("days_count")
+
+  guestsCount      Int @map("guests_count")
+  extraGuestsCount Int @default(0) @map("extra_guests_count")
+
+  state ReservationState @default(HOST_APPROVAL)
+
+  cancelledBy ReservationCancelledBy? @map("cancelled_by")
+  cancelReason String?                @map("cancel_reason")
+  cancelDesc   String?                @map("cancel_desc")
+
+  totalAmount     Float @map("total_amount")
+  paidAmount      Float @default(0) @map("paid_amount")
+  remainingAmount Float @default(0) @map("remaining_amount")
+  hostShare       Float? @map("host_share")
+  websiteShare    Float? @map("website_share")
+
+  voucherCode String? @map("voucher_code")
+
+  guestNameOverride  String? @map("guest_name_override") // booking-for-someone-else
+  guestPhoneOverride String? @map("guest_phone_override")
+
+  rooms ReservationRoom[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([residenceId])
+  @@index([guestId])
+  @@index([hostId])
+  @@index([state])
+  @@map("reservations")
+}
+
+model ReservationRoom {
+  id            Int         @id @default(autoincrement())
+  reservationId Int         @map("reservation_id")
+  reservation   Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+  roomId        Int         @map("room_id")
+  room          Room        @relation(fields: [roomId], references: [id])
+
+  @@unique([reservationId, roomId])
+  @@map("reservation_rooms")
+}
+
+// ---------- Favourites ----------
+
+model Favourite {
+  id          Int       @id @default(autoincrement())
+  userId      Int       @map("user_id")
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  residenceId Int       @map("residence_id")
+  residence   Residence @relation(fields: [residenceId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+
+  @@unique([userId, residenceId])
+  @@map("favourites")
+}

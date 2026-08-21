@@ -88,16 +88,16 @@ export async function replaceRooms(req: Request, res: Response) {
 export async function updateDocuments(req: Request, res: Response) {
   const files = req.files as Record<string, Express.Multer.File[]> | undefined;
   const patch: { hostNationalCardUrl?: string; documentUrl?: string; ownerNationalCardUrl?: string } = {};
-  if (files?.hostNationalCard?.[0]) patch.hostNationalCardUrl = fileToUrl(files.hostNationalCard[0].filename);
-  if (files?.document?.[0]) patch.documentUrl = fileToUrl(files.document[0].filename);
-  if (files?.ownerNationalCard?.[0]) patch.ownerNationalCardUrl = fileToUrl(files.ownerNationalCard[0].filename);
+  if (files?.hostNationalCard?.[0]) patch.hostNationalCardUrl = fileToUrl(files.hostNationalCard[0]);
+  if (files?.document?.[0]) patch.documentUrl = fileToUrl(files.document[0]);
+  if (files?.ownerNationalCard?.[0]) patch.ownerNationalCardUrl = fileToUrl(files.ownerNationalCard[0]);
   const data = await service.updateDocuments(hostId(req), Number(req.params.id), patch);
   return ok(res, data);
 }
 
 export async function uploadImage(req: Request, res: Response) {
   if (!req.file) throw AppError.badRequest("فایل تصویر ارسال نشده است");
-  const url = fileToUrl(req.file.filename);
+  const url = fileToUrl(req.file);
   const isMain = req.body.isMain === undefined ? undefined : req.body.isMain === "true";
   const data = await service.addImage(hostId(req), Number(req.params.id), url, req.body.title, isMain);
   return created(res, data);

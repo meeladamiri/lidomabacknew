@@ -2,6 +2,7 @@ import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { AppError } from "@/lib/errors";
 import { generateReference } from "@/utils/reference";
+import { deleteStoredFile } from "@/middleware/upload";
 
 // ---------- Public ----------
 
@@ -363,7 +364,9 @@ export async function addImage(
 
 export async function deleteImage(hostId: number, residenceId: number, imageId: number) {
   await assertOwnership(hostId, residenceId);
+  const image = await prisma.residenceImage.findFirst({ where: { id: imageId, residenceId } });
   await prisma.residenceImage.deleteMany({ where: { id: imageId, residenceId } });
+  await deleteStoredFile(image?.url);
 }
 
 // Only reorders — does NOT touch `isMain`. The wizard's image_ids list
@@ -372,9 +375,14 @@ export async function deleteImage(hostId: number, residenceId: number, imageId: 
 // leave two images marked main at once.
 export async function reorderImages(hostId: number, residenceId: number, imageIds: number[]) {
   await assertOwnership(hostId, residenceId);
+  const toDelete = await prisma.residenceImage.findMany({
+    where: { residenceId, isMain: false, id: { notIn: imageIds } },
+    select: { url: true },
+  });
   await prisma.residenceImage.deleteMany({
     where: { residenceId, isMain: false, id: { notIn: imageIds } },
   });
+  await Promise.all(toDelete.map((img) => deleteStoredFile(img.url)));
   await prisma.$transaction(
     imageIds.map((id, index) =>
       prisma.residenceImage.update({

@@ -37,6 +37,15 @@ export const env = {
     phone: process.env.ADMIN_BOOTSTRAP_PHONE ?? "09120000000",
     password: process.env.ADMIN_BOOTSTRAP_PASSWORD ?? "ChangeMe123!",
   },
+
+  // Object storage (Liara, S3-compatible). When unset, uploads fall back to
+  // local disk (see middleware/upload.ts) — fine for dev, not for production.
+  objectStorage: {
+    endpoint: process.env.LIARA_ENDPOINT ?? "",
+    bucket: process.env.LIARA_BUCKET ?? "",
+    accessKey: process.env.LIARA_ACCESS_KEY ?? "",
+    secretKey: process.env.LIARA_SECRET_KEY ?? "",
+  },
 } as const;
 
 export const isProd = env.nodeEnv === "production";

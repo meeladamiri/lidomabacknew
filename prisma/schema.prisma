@@ -146,6 +146,7 @@ model User {
   favourites    Favourite[]
   otpCodes      OtpCode[]
   refreshTokens RefreshToken[]
+  reviews       Review[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -317,6 +318,7 @@ model Residence {
   calendarDays CalendarDay[]
   reservations Reservation[]
   favouritedBy Favourite[]
+  reviews      Review[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -479,7 +481,8 @@ model Reservation {
   guestNameOverride  String? @map("guest_name_override") // booking-for-someone-else
   guestPhoneOverride String? @map("guest_phone_override")
 
-  rooms ReservationRoom[]
+  rooms  ReservationRoom[]
+  review Review?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -502,6 +505,45 @@ model ReservationRoom {
   @@map("reservation_rooms")
 }
 
+// ---------- Reviews ----------
+// One review per completed reservation (guest side). The single displayed
+// "rating" is an average of 6 sub-scores — matches the shape the frontend's
+// review UI (built years before this backend) already expects, so it needs
+// no changes: `front/components/SubmitReviewForMyTrip`,
+// `front/components/ObserveResidenceDetails/.../ResReviews`,
+// `front/components/Host/GuestsReviews`.
+
+model Review {
+  id            Int         @id @default(autoincrement())
+  reservationId Int         @unique @map("reservation_id")
+  reservation   Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+  residenceId   Int         @map("residence_id")
+  residence     Residence   @relation(fields: [residenceId], references: [id], onDelete: Cascade)
+  guestId       Int         @map("guest_id")
+  guest         User        @relation(fields: [guestId], references: [id])
+
+  cleaning  Int
+  location  Int
+  quality   Int
+  integrity Int
+  greeting  Int
+  delivery  Int
+  // Stored (not just computed on read) so residence-level average/count
+  // aggregation stays a cheap read — recomputed whenever a review is
+  // created for that residence.
+  averageRating Float @map("average_rating")
+
+  comment    String
+  hostAnswer String? @map("host_answer")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([residenceId])
+  @@index([guestId])
+  @@map("reviews")
+}
+
 // ---------- Favourites ----------
 
 model Favourite {
@@ -514,4 +556,23 @@ model Favourite {
 
   @@unique([userId, residenceId])
   @@map("favourites")
+}
+
+// ---------- Admin ----------
+
+// Saved custom-filter presets for admin list pages (e.g. residences). Shared
+// across all admins — anyone can save/apply/delete one. `entity` scopes a
+// preset to the list page it applies to; `filters` is a JSON array of
+// {field, operator, value}, validated against a per-entity whitelist at the
+// API layer (this table has no FK/enum constraints of its own since the
+// whitelist can grow without a migration).
+model AdminFilterPreset {
+  id        Int      @id @default(autoincrement())
+  name      String
+  entity    String
+  filters   Json
+  createdAt DateTime @default(now())
+
+  @@index([entity])
+  @@map("admin_filter_presets")
 }

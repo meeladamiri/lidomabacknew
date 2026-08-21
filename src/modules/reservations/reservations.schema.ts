@@ -43,3 +43,29 @@ export const guestCancelReservationSchema = z.object({
     reason: z.string().min(1).optional(),
   }),
 });
+
+const score = z.number().int().min(1).max(5);
+
+export const submitReviewSchema = z.object({
+  params: z.object({ id: z.coerce.number().int() }),
+  body: z.object({
+    cleaning: score,
+    location: score,
+    quality: score,
+    integrity: score,
+    greeting: score,
+    delivery: score,
+    comment: z.string().min(1).max(2000),
+  }),
+});
+
+export const reviewIdParamSchema = z.object({
+  params: z.object({ reviewId: z.coerce.number().int() }),
+});
+
+export const replyToReviewSchema = z.object({
+  params: z.object({ reviewId: z.coerce.number().int() }),
+  body: z.object({
+    hostAnswer: z.string().min(1).max(2000),
+  }),
+});

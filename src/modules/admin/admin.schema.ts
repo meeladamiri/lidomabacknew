@@ -6,6 +6,19 @@ export const listQuerySchema = z.object({
     pageSize: z.coerce.number().int().min(1).max(100).optional(),
     q: z.string().optional(),
     state: z.string().optional(),
+    // JSON-encoded FilterCondition[] — parsed/whitelisted in admin.service.ts,
+    // this schema only checks it's syntactically a string here.
+    filters: z.string().optional(),
+  }),
+});
+
+export const filterPresetSchema = z.object({
+  body: z.object({
+    name: z.string().min(1).max(100),
+    entity: z.string().min(1).max(50),
+    filters: z.array(
+      z.object({ field: z.string(), operator: z.string(), value: z.unknown() })
+    ),
   }),
 });
 
@@ -26,6 +39,15 @@ export const residenceStateSchema = z.object({
   params: z.object({ id: z.coerce.number().int() }),
   body: z.object({
     state: z.enum(["DRAFT", "PENDING", "PUBLISHED", "REJECTED", "DEACTIVATED", "DELETED"]),
+  }),
+});
+
+export const updateReservationSchema = z.object({
+  params: z.object({ id: z.coerce.number().int() }),
+  body: z.object({
+    action: z.enum(["cancel", "forceApprove", "markDone"]),
+    reason: z.string().max(500).optional(),
+    desc: z.string().max(2000).optional(),
   }),
 });
 

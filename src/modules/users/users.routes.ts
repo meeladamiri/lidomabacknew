@@ -6,6 +6,7 @@ import { requireAuth } from "@/middleware/auth";
 import { AppError } from "@/lib/errors";
 import { ok } from "@/utils/response";
 import { prisma } from "@/lib/prisma";
+import { upload, fileToUrl, deleteStoredFile } from "@/middleware/upload";
 
 const router = Router();
 router.use(requireAuth);
@@ -80,6 +81,26 @@ router.patch(
       data: req.body,
       select: ME_SELECT,
     });
+    return ok(res, user);
+  })
+);
+
+router.post(
+  "/me/avatar",
+  upload.single("avatar"),
+  asyncHandler(async (req, res) => {
+    if (!req.file) throw AppError.badRequest("فایل تصویر ارسال نشده است");
+    const current = await prisma.user.findUniqueOrThrow({
+      where: { id: req.user!.sub },
+      select: { avatarUrl: true },
+    });
+    const url = fileToUrl(req.file);
+    const user = await prisma.user.update({
+      where: { id: req.user!.sub },
+      data: { avatarUrl: url },
+      select: ME_SELECT,
+    });
+    await deleteStoredFile(current.avatarUrl);
     return ok(res, user);
   })
 );

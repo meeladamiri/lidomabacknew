@@ -8,6 +8,12 @@ export async function getDetail(req: Request, res: Response) {
   return ok(res, data);
 }
 
+export async function hostProfile(req: Request, res: Response) {
+  const hostId = Number(req.params.hostId);
+  const data = await service.getHostProfile(hostId);
+  return ok(res, data);
+}
+
 export async function amenityCatalog(_req: Request, res: Response) {
   const data = await service.getAmenityCatalog();
   return ok(res, data);

@@ -78,7 +78,7 @@ export interface ResidenceSearchFilters {
   order?: "price_asc" | "price_desc" | "rating_desc" | "newest";
 }
 
-const RESIDENCE_CARD_SELECT = {
+export const RESIDENCE_CARD_SELECT = {
   id: true,
   reference: true,
   name: true,
@@ -107,7 +107,7 @@ const RESIDENCE_CARD_SELECT = {
   rooms: { select: { id: true } },
 } satisfies Prisma.ResidenceSelect;
 
-function toCard(residence: Prisma.ResidenceGetPayload<{ select: typeof RESIDENCE_CARD_SELECT }>) {
+export function toCard(residence: Prisma.ResidenceGetPayload<{ select: typeof RESIDENCE_CARD_SELECT }>) {
   return {
     id: residence.id,
     reference: residence.reference,

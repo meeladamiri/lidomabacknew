@@ -7,7 +7,10 @@ import {
   createReservationSchema,
   guestCancelReservationSchema,
   rejectReservationSchema,
+  replyToReviewSchema,
   reservationIdParamSchema,
+  reviewIdParamSchema,
+  submitReviewSchema,
 } from "./reservations.schema";
 import * as controller from "./reservations.controller";
 
@@ -23,6 +26,8 @@ router.post(
   validate(guestCancelReservationSchema),
   asyncHandler(controller.guestCancel)
 );
+router.get("/:id/review", validate(reservationIdParamSchema), asyncHandler(controller.getMyReview));
+router.post("/:id/review", validate(submitReviewSchema), asyncHandler(controller.submitReview));
 
 // Host-facing, mounted at /api/host/reservations
 const hostRouter = Router();
@@ -32,5 +37,17 @@ hostRouter.get("/", asyncHandler(controller.hostList));
 hostRouter.post("/:id/accept", validate(reservationIdParamSchema), asyncHandler(controller.accept));
 hostRouter.post("/:id/reject", validate(rejectReservationSchema), asyncHandler(controller.reject));
 hostRouter.post("/:id/cancel", validate(cancelReservationSchema), asyncHandler(controller.hostCancel));
+
+hostRouter.get("/reviews", asyncHandler(controller.listHostReviews));
+hostRouter.get(
+  "/reviews/:reviewId",
+  validate(reviewIdParamSchema),
+  asyncHandler(controller.getHostReviewDetail)
+);
+hostRouter.post(
+  "/reviews/:reviewId/reply",
+  validate(replyToReviewSchema),
+  asyncHandler(controller.replyToReview)
+);
 
 export { router as guestReservationRoutes, hostRouter as hostReservationRoutes };

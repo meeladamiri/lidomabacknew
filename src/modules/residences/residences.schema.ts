@@ -4,6 +4,10 @@ export const residenceIdParamSchema = z.object({
   params: z.object({ id: z.coerce.number().int() }),
 });
 
+export const hostIdParamSchema = z.object({
+  params: z.object({ hostId: z.coerce.number().int() }),
+});
+
 export const createResidenceSchema = z.object({
   body: z.object({
     type: z.enum(["BOOMGARDI", "SUIT"]),

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { AppError } from "@/lib/errors";
 import { generateReference } from "@/utils/reference";
 import { deleteStoredFile } from "@/middleware/upload";
+import { RESIDENCE_CARD_SELECT, toCard } from "@/modules/search/search.service";
 
 // ---------- Public ----------
 
@@ -16,6 +17,11 @@ export async function getResidenceDetail(id: number) {
       amenities: { include: { amenity: { include: { features: true } } } },
       rules: { include: { rule: true } },
       host: { select: { id: true, name: true, avatarUrl: true, createdAt: true } },
+      reviews: {
+        orderBy: { createdAt: "desc" },
+        take: 20,
+        include: { guest: { select: { name: true } } },
+      },
     },
   });
 
@@ -42,6 +48,48 @@ export async function getResidenceDetail(id: number) {
   });
 
   return { residence, similar };
+}
+
+export async function getHostProfile(hostId: number) {
+  const host = await prisma.user.findFirst({
+    where: { id: hostId, isHost: true },
+    select: { id: true, name: true, avatarUrl: true, description: true, createdAt: true },
+  });
+
+  if (!host) {
+    throw AppError.notFound("میزبان یافت نشد");
+  }
+
+  const [residences, totalReservations, confirmedReservations, reviews] = await Promise.all([
+    prisma.residence.findMany({
+      where: { hostId, state: "PUBLISHED", published: true },
+      select: RESIDENCE_CARD_SELECT,
+      orderBy: { createdAt: "desc" },
+    }),
+    prisma.reservation.count({ where: { hostId } }),
+    prisma.reservation.count({ where: { hostId, state: { in: ["SECOND_PAYMENT", "DONE"] } } }),
+    prisma.review.findMany({
+      where: { residence: { hostId } },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+      include: {
+        guest: { select: { name: true } },
+        residence: { select: { id: true, name: true, type: true, images: { take: 1, orderBy: { sortOrder: "asc" } } } },
+      },
+    }),
+  ]);
+
+  // No response-time tracking exists yet (no host/guest chat) — the only
+  // proxy we currently have is how often a host's reservations actually
+  // proceed past their approval step. Defaults to 100 for a host with no
+  // reservation history yet, rather than implying a bad track record.
+  const confirmPercent = totalReservations > 0 ? (confirmedReservations / totalReservations) * 100 : 100;
+
+  return {
+    host: { ...host, confirmPercent },
+    residences: residences.map(toCard),
+    reviews,
+  };
 }
 
 export async function getAmenityCatalog() {

@@ -4,7 +4,7 @@ import { AppError } from "@/lib/errors";
 import { generateReference } from "@/utils/reference";
 import { calculateStayPrice } from "./pricing";
 
-const RESERVATION_INCLUDE = {
+export const RESERVATION_INCLUDE = {
   residence: {
     select: {
       id: true,
@@ -73,6 +73,7 @@ const RESERVATION_INCLUDE = {
       },
     },
   },
+  review: true,
 } satisfies Prisma.ReservationInclude;
 
 export async function createReservation(
@@ -350,7 +351,7 @@ export async function getReservationDetail(userId: number, id: number) {
   return getOwnedReservation(userId, id, "either");
 }
 
-async function releaseCalendarDays(
+export async function releaseCalendarDays(
   residenceId: number,
   startDate: Date,
   endDate: Date
@@ -454,6 +455,110 @@ export async function hostCancelReservation(
   );
 
   return updated;
+}
+
+// ---------- Reviews ----------
+
+interface ReviewScores {
+  cleaning: number;
+  location: number;
+  quality: number;
+  integrity: number;
+  greeting: number;
+  delivery: number;
+}
+
+async function recomputeResidenceRating(residenceId: number) {
+  const agg = await prisma.review.aggregate({
+    where: { residenceId },
+    _avg: { averageRating: true },
+    _count: true,
+  });
+  await prisma.residence.update({
+    where: { id: residenceId },
+    data: { averageRating: agg._avg.averageRating ?? 0, reviewsCount: agg._count },
+  });
+}
+
+export async function getMyReview(guestId: number, reservationId: number) {
+  await getOwnedReservation(guestId, reservationId, "guest");
+  return prisma.review.findUnique({ where: { reservationId } });
+}
+
+export async function submitReview(
+  guestId: number,
+  reservationId: number,
+  scores: ReviewScores,
+  comment: string
+) {
+  const reservation = await getOwnedReservation(guestId, reservationId, "guest");
+
+  if (reservation.state !== "DONE") {
+    throw AppError.badRequest("فقط برای رزروهای تکمیل‌شده می‌توانید نظر ثبت کنید");
+  }
+
+  const existing = await prisma.review.findUnique({ where: { reservationId } });
+  if (existing) {
+    throw AppError.badRequest("برای این رزرو قبلاً نظر ثبت شده است");
+  }
+
+  const values = Object.values(scores);
+  const averageRating = values.reduce((a, b) => a + b, 0) / values.length;
+
+  const review = await prisma.review.create({
+    data: {
+      reservationId,
+      residenceId: reservation.residenceId,
+      guestId,
+      ...scores,
+      averageRating,
+      comment,
+    },
+  });
+
+  await recomputeResidenceRating(reservation.residenceId);
+  return review;
+}
+
+// Host-facing review management is keyed by the review's own id (not the
+// reservation's) — that's what `front/api/Comment.ts`'s existing UI
+// (`components/Comments/*`) already calls `commentId` and was built around.
+
+export async function listHostReviews(hostId: number) {
+  return prisma.review.findMany({
+    where: { residence: { hostId } },
+    orderBy: { createdAt: "desc" },
+    include: { guest: { select: { name: true } }, residence: { select: { reference: true } } },
+  });
+}
+
+export async function getHostReviewDetail(hostId: number, reviewId: number) {
+  const review = await prisma.review.findFirst({
+    where: { id: reviewId, residence: { hostId } },
+    include: {
+      guest: { select: { name: true } },
+      residence: {
+        select: {
+          reference: true,
+          name: true,
+          type: true,
+          images: { take: 1, orderBy: { sortOrder: "asc" } },
+        },
+      },
+    },
+  });
+  if (!review) {
+    throw AppError.notFound("نظر یافت نشد");
+  }
+  return review;
+}
+
+export async function replyToReview(hostId: number, reviewId: number, hostAnswer: string) {
+  const review = await prisma.review.findFirst({ where: { id: reviewId, residence: { hostId } } });
+  if (!review) {
+    throw AppError.notFound("نظر یافت نشد");
+  }
+  return prisma.review.update({ where: { id: reviewId }, data: { hostAnswer } });
 }
 
 export async function guestCancelReservation(

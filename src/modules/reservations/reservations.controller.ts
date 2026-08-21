@@ -28,6 +28,32 @@ export async function guestCancel(req: Request, res: Response) {
   return ok(res, data);
 }
 
+export async function getMyReview(req: Request, res: Response) {
+  const data = await service.getMyReview(userId(req), Number(req.params.id));
+  return ok(res, data);
+}
+
+export async function submitReview(req: Request, res: Response) {
+  const { comment, ...scores } = req.body;
+  const data = await service.submitReview(userId(req), Number(req.params.id), scores, comment);
+  return created(res, data);
+}
+
+export async function listHostReviews(req: Request, res: Response) {
+  const data = await service.listHostReviews(userId(req));
+  return ok(res, data);
+}
+
+export async function getHostReviewDetail(req: Request, res: Response) {
+  const data = await service.getHostReviewDetail(userId(req), Number(req.params.reviewId));
+  return ok(res, data);
+}
+
+export async function replyToReview(req: Request, res: Response) {
+  const data = await service.replyToReview(userId(req), Number(req.params.reviewId), req.body.hostAnswer);
+  return ok(res, data);
+}
+
 // Host-side
 
 export async function hostList(req: Request, res: Response) {

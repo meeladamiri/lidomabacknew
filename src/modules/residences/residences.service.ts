@@ -89,13 +89,13 @@ async function assertOwnership(hostId: number, residenceId: number) {
 
 export async function createResidence(
   hostId: number,
-  data: { type: "BOOMGARDI" | "SUIT"; name: string; cityId?: number }
+  data: { type: "BOOMGARDI" | "SUIT"; name?: string; cityId?: number }
 ) {
   return prisma.residence.create({
     data: {
       hostId,
       type: data.type,
-      name: data.name,
+      name: data.name || "اقامتگاه بدون نام", // wizard fills the real name in a later step
       cityId: data.cityId,
       reference: generateReference("RES-"),
       state: "DRAFT",
@@ -104,19 +104,29 @@ export async function createResidence(
   });
 }
 
+const WIZARD_STEP_COUNT = 14;
+
 export async function updateSpecs(
   hostId: number,
   id: number,
-  data: Prisma.ResidenceUpdateInput
+  data: Prisma.ResidenceUpdateInput & { step?: number }
 ) {
-  await assertOwnership(hostId, id);
-  return prisma.residence.update({ where: { id }, data });
+  const residence = await assertOwnership(hostId, id);
+  const { step, ...fields } = data;
+  const patch: Prisma.ResidenceUpdateInput = { ...fields };
+  if (step !== undefined) {
+    const nextStep = Math.max(residence.step ?? 0, step);
+    patch.step = nextStep;
+    patch.completionPercent = Math.round((nextStep / WIZARD_STEP_COUNT) * 100);
+  }
+  return prisma.residence.update({ where: { id }, data: patch });
 }
 
 export async function updateAmenities(
   hostId: number,
   id: number,
-  amenities: { amenityId: number; extraFeatures?: Record<string, unknown> }[]
+  amenities: { amenityId: number; extraFeatures?: Record<string, unknown> }[],
+  other?: string
 ) {
   await assertOwnership(hostId, id);
   return prisma.$transaction(async (tx: Prisma.TransactionClient) => {
@@ -130,6 +140,9 @@ export async function updateAmenities(
         })),
       });
     }
+    if (other !== undefined) {
+      await tx.residence.update({ where: { id }, data: { otherAmenities: other } });
+    }
     return tx.residence.findUniqueOrThrow({
       where: { id },
       include: { amenities: { include: { amenity: true } } },
@@ -141,11 +154,12 @@ export async function updateRules(
   hostId: number,
   id: number,
   data: {
-    rules: { ruleId: number; value?: unknown }[];
+    rules?: { ruleId: number; value?: unknown }[];
     checkinFrom?: string;
     checkinTo?: string;
     checkout?: string;
     minReservableDays?: number;
+    cancellationPolicy?: string;
     cancellationPolicyDesc?: string;
     fullReturnTime?: number;
     beforeStartTime?: number;
@@ -157,16 +171,20 @@ export async function updateRules(
   await assertOwnership(hostId, id);
   const { rules, ...residenceFields } = data;
   return prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-    await tx.residence.update({ where: { id }, data: residenceFields });
-    await tx.residenceRule.deleteMany({ where: { residenceId: id } });
-    if (rules.length > 0) {
-      await tx.residenceRule.createMany({
-        data: rules.map((r) => ({
-          residenceId: id,
-          ruleId: r.ruleId,
-          value: r.value as Prisma.InputJsonValue,
-        })),
-      });
+    if (Object.keys(residenceFields).length > 0) {
+      await tx.residence.update({ where: { id }, data: residenceFields });
+    }
+    if (rules !== undefined) {
+      await tx.residenceRule.deleteMany({ where: { residenceId: id } });
+      if (rules.length > 0) {
+        await tx.residenceRule.createMany({
+          data: rules.map((r) => ({
+            residenceId: id,
+            ruleId: r.ruleId,
+            value: r.value as Prisma.InputJsonValue,
+          })),
+        });
+      }
     }
     return tx.residence.findUniqueOrThrow({
       where: { id },
@@ -245,13 +263,65 @@ export async function deleteRoom(hostId: number, roomId: number) {
   await prisma.room.delete({ where: { id: roomId } });
 }
 
+// Wizard step 5 always resends the full room list — replace-all instead of
+// diffing against existing rows by id (same pattern as amenities/rules).
+export async function replaceRooms(
+  hostId: number,
+  id: number,
+  data: {
+    capacity?: number;
+    maxCapacity?: number;
+    rooms: Prisma.RoomCreateWithoutResidenceInput[];
+  }
+) {
+  await assertOwnership(hostId, id);
+  const { rooms, ...residenceFields } = data;
+  return prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    if (Object.keys(residenceFields).length > 0) {
+      await tx.residence.update({ where: { id }, data: residenceFields });
+    }
+    await tx.room.deleteMany({ where: { residenceId: id } });
+    if (rooms.length > 0) {
+      await tx.room.createMany({
+        data: rooms.map((r) => ({ ...r, residenceId: id })) as Prisma.RoomUncheckedCreateInput[],
+      });
+    }
+    return tx.residence.findUniqueOrThrow({ where: { id }, include: { rooms: true } });
+  });
+}
+
+// ---------- Host: documents (KYC / ownership proof) ----------
+
+export async function updateDocuments(
+  hostId: number,
+  id: number,
+  data: { hostNationalCardUrl?: string; documentUrl?: string; ownerNationalCardUrl?: string }
+) {
+  await assertOwnership(hostId, id);
+  return prisma.residence.update({ where: { id }, data });
+}
+
 // ---------- Host: images ----------
 
-export async function addImage(hostId: number, residenceId: number, url: string, title?: string) {
+export async function addImage(
+  hostId: number,
+  residenceId: number,
+  url: string,
+  title?: string,
+  isMain?: boolean
+) {
   await assertOwnership(hostId, residenceId);
   const count = await prisma.residenceImage.count({ where: { residenceId } });
-  return prisma.residenceImage.create({
-    data: { residenceId, url, title, sortOrder: count, isMain: count === 0 },
+  // Uploads can race (main + gallery images upload concurrently), so an
+  // explicit `isMain` always wins over the "first image wins" fallback.
+  const shouldBeMain = isMain !== undefined ? isMain : count === 0;
+  return prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    if (shouldBeMain) {
+      await tx.residenceImage.updateMany({ where: { residenceId, isMain: true }, data: { isMain: false } });
+    }
+    return tx.residenceImage.create({
+      data: { residenceId, url, title, sortOrder: count, isMain: shouldBeMain },
+    });
   });
 }
 
@@ -260,13 +330,20 @@ export async function deleteImage(hostId: number, residenceId: number, imageId: 
   await prisma.residenceImage.deleteMany({ where: { id: imageId, residenceId } });
 }
 
+// Only reorders — does NOT touch `isMain`. The wizard's image_ids list
+// excludes the main image entirely (it's set explicitly at upload time), so
+// forcing index 0 to be main here would both mis-flag a gallery photo and
+// leave two images marked main at once.
 export async function reorderImages(hostId: number, residenceId: number, imageIds: number[]) {
   await assertOwnership(hostId, residenceId);
+  await prisma.residenceImage.deleteMany({
+    where: { residenceId, isMain: false, id: { notIn: imageIds } },
+  });
   await prisma.$transaction(
     imageIds.map((id, index) =>
       prisma.residenceImage.update({
         where: { id },
-        data: { sortOrder: index, isMain: index === 0 },
+        data: { sortOrder: index },
       })
     )
   );

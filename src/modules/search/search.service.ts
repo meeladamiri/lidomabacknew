@@ -19,6 +19,21 @@ export async function getPopularDestinations() {
   }));
 }
 
+export async function getProvincesAndCities() {
+  const provinces = await prisma.province.findMany({
+    include: { cities: { select: { name: true }, orderBy: { name: "asc" } } },
+    orderBy: { name: "asc" },
+  });
+
+  return provinces.map((p) => ({
+    id: p.id,
+    name: p.name,
+    latitude: p.latitude,
+    longitude: p.longitude,
+    cities: p.cities.map((c) => c.name),
+  }));
+}
+
 export async function searchCitiesAndProvinces(query: string) {
   const [cities, provinces] = await Promise.all([
     prisma.city.findMany({

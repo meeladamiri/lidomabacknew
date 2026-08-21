@@ -254,6 +254,8 @@ model Residence {
   name        String
   name2       String?
   description String?
+  region      String? // coarse marketing region picked in the wizard (e.g. "شمال", "تهران و اطراف")
+  rentType    String? @map("rent_type") // whole-place vs per-room etc, wizard step 3
 
   cityId       Int?    @map("city_id")
   city         City?   @relation(fields: [cityId], references: [id])
@@ -272,15 +274,23 @@ model Residence {
   checkinTo    String? @map("checkin_to")
   checkout     String?
   minReservableDays Int? @map("min_reservable_days")
+  rulesDesc         String? @map("rules_desc") // free-text "additional rules", wizard step 12
 
   cancelCommission  Float?  @map("cancel_commission")
   reserveCommission Float?  @map("reserve_commission")
+  cancellationPolicy     String? @map("cancellation_policy") // preset key or "custom", wizard step 13
   cancellationPolicyDesc String? @map("cancellation_policy_desc")
   fullReturnTime          Int?    @map("full_return_time")
   beforeStartTime         Int?    @map("before_start_time")
   hostShareTotalAmount    Float?  @map("host_share_total_amount")
   hostSharePastNights     Float?  @map("host_share_past_nights")
   hostShareFutureNights   Float?  @map("host_share_future_nights")
+
+  otherAmenities String? @map("other_amenities") // free-text "other" amenities, wizard step 6
+
+  hostNationalCardUrl  String? @map("host_national_card_url")
+  documentUrl          String? @map("document_url") // property ownership proof
+  ownerNationalCardUrl String? @map("owner_national_card_url") // only when host isn't the owner
 
   // General pricing (per-residence baseline; rooms may override)
   weekPrice          Float?  @map("week_price")

@@ -7,6 +7,7 @@ import {
   changeStateSchema,
   createResidenceSchema,
   createRoomSchema,
+  replaceRoomsSchema,
   reorderImagesSchema,
   residenceIdParamSchema,
   updateAmenitiesSchema,
@@ -33,11 +34,23 @@ router.patch("/:id/capacity", validate(updateCapacitySchema), asyncHandler(contr
 router.patch("/:id/state", validate(changeStateSchema), asyncHandler(controller.changeState));
 
 router.post("/:id/rooms", validate(createRoomSchema), asyncHandler(controller.addRoom));
+router.put("/:id/rooms", validate(replaceRoomsSchema), asyncHandler(controller.replaceRooms));
 router.patch("/rooms/:roomId", validate(updateRoomSchema), asyncHandler(controller.updateRoom));
 router.delete("/rooms/:roomId", asyncHandler(controller.deleteRoom));
 
 router.post("/:id/images", validate(residenceIdParamSchema), upload.single("image"), asyncHandler(controller.uploadImage));
 router.delete("/:id/images/:imageId", asyncHandler(controller.deleteImage));
 router.post("/:id/images/order", validate(reorderImagesSchema), asyncHandler(controller.reorderImages));
+
+router.post(
+  "/:id/documents",
+  validate(residenceIdParamSchema),
+  upload.fields([
+    { name: "hostNationalCard", maxCount: 1 },
+    { name: "document", maxCount: 1 },
+    { name: "ownerNationalCard", maxCount: 1 },
+  ]),
+  asyncHandler(controller.updateDocuments)
+);
 
 export default router;

@@ -19,6 +19,12 @@ export async function getOne(req: Request, res: Response) {
   return ok(res, data);
 }
 
+export async function stats(req: Request, res: Response) {
+  const residenceId = req.query.residenceId ? Number(req.query.residenceId) : undefined;
+  const data = await service.getHostResidenceStats(hostId(req), residenceId);
+  return ok(res, data);
+}
+
 export async function create(req: Request, res: Response) {
   const data = await service.createResidence(hostId(req), req.body);
   return created(res, data);

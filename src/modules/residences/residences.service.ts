@@ -64,6 +64,42 @@ export async function listHostResidences(hostId: number) {
   });
 }
 
+// Reservation-derived stats only — there's no reviews table yet (Phase 2),
+// so the rating fields the frontend also expects (location_rate, etc.) are
+// left for the API layer to zero out.
+export async function getHostResidenceStats(hostId: number, residenceId?: number) {
+  const where: Prisma.ReservationWhereInput = {
+    hostId,
+    ...(residenceId ? { residenceId } : {}),
+  };
+
+  const [totalReserves, confirmedReserves, rejectedReserves, doneReservations] = await Promise.all([
+    prisma.reservation.count({ where }),
+    prisma.reservation.count({ where: { ...where, state: { in: ["SECOND_PAYMENT", "DONE"] } } }),
+    prisma.reservation.count({ where: { ...where, state: "CANCEL" } }),
+    prisma.reservation.findMany({
+      where: { ...where, state: "DONE" },
+      select: { daysCount: true, hostShare: true, totalAmount: true, startDate: true },
+    }),
+  ]);
+
+  const totalDays = doneReservations.reduce((sum, r) => sum + r.daysCount, 0);
+  const totalIncome = doneReservations.reduce((sum, r) => sum + (r.hostShare ?? r.totalAmount), 0);
+  const activeMonths = new Set(
+    doneReservations.map((r) => `${r.startDate.getFullYear()}-${r.startDate.getMonth()}`)
+  ).size;
+
+  return {
+    total_reserves: totalReserves,
+    confirmed_reserves: confirmedReserves,
+    rejected_reserves: rejectedReserves,
+    succeed_reserves: doneReservations.length,
+    total_days: totalDays,
+    total_income: totalIncome,
+    average_income: activeMonths > 0 ? Math.round(totalIncome / activeMonths) : 0,
+  };
+}
+
 export async function getHostResidenceFull(hostId: number, id: number) {
   const residence = await prisma.residence.findFirst({
     where: { id, hostId },

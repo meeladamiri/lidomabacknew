@@ -106,6 +106,8 @@ interface OdooResidence {
   address: string | null;
   neighborhood: string | null;
   floor: string | null;
+  latitude: number | null;
+  longitude: number | null;
   foundation_area: number | null;
   total_area: number | null;
   capacity: number | null;
@@ -166,6 +168,8 @@ async function fetchResidences(): Promise<OdooResidence[]> {
       NULLIF(trim(pt.x_address), '') AS address,
       NULLIF(trim(pt.x_neigborhood), '') AS neighborhood,
       NULLIF(trim(pt.x_floor), '') AS floor,
+      NULLIF(trim(pt.x_lattitude), '')::float AS latitude,
+      NULLIF(trim(pt.x_longitude), '')::float AS longitude,
       pt.x_foundation_area AS foundation_area,
       pt.x_total_area AS total_area,
       pt.x_capacity AS capacity,
@@ -310,6 +314,8 @@ async function main() {
           address: res.address,
           neighborhood: res.neighborhood,
           floor: res.floor,
+          latitude: res.latitude,
+          longitude: res.longitude,
           foundationArea: res.foundation_area,
           totalArea: res.total_area,
           capacity: res.capacity,

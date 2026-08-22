@@ -18,6 +18,13 @@ export const searchPageDataSchema = z.object({
   }),
 });
 
+export const legacyImageSchema = z.object({
+  query: z.object({
+    model: z.enum(["product.image", "product.template"]),
+    id: z.string().regex(/^\d+$/),
+  }),
+});
+
 export const residenceSearchSchema = z.object({
   body: z.object({
     cityId: z.number().int().optional(),

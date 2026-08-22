@@ -51,6 +51,16 @@ export async function resolveLegacyRedirect(rawPath: string) {
   return row?.target ?? null;
 }
 
+// Resolves a legacy Odoo image URL ("/web/image/<model>/<odoo id>/image/…")
+// to its migrated object-storage URL (see scripts/migrate-odoo-image-urls.ts).
+export async function resolveLegacyImage(model: string, odooId: number) {
+  const row = await prisma.legacyImageRedirect.findUnique({
+    where: { model_odooId: { model, odooId } },
+    select: { url: true },
+  });
+  return row?.url ?? null;
+}
+
 export async function searchCitiesAndProvinces(query: string) {
   const [cities, provinces, residences] = await Promise.all([
     prisma.city.findMany({

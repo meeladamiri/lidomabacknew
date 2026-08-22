@@ -112,6 +112,20 @@ model LegacyRedirect {
   @@map("legacy_redirects")
 }
 
+// Legacy Odoo image URLs ("/web/image/<model>/<odoo id>/image/<seo-name>.jpg",
+// served from cdn.lidomatrip.com) -> the migrated object-storage URL. These
+// are Google-Images-indexed; the frontend's /web/image catch-all 301s them.
+// Populated by scripts/migrate-odoo-image-urls.ts.
+model LegacyImageRedirect {
+  id     Int    @id @default(autoincrement())
+  model  String // "product.image" (gallery) | "product.template" (main image)
+  odooId Int    @map("odoo_id")
+  url    String
+
+  @@unique([model, odooId])
+  @@map("legacy_image_redirects")
+}
+
 model City {
   id         Int         @id @default(autoincrement())
   name       String

@@ -19,6 +19,12 @@ export async function searchPageData(req: Request, res: Response) {
   return ok(res, data);
 }
 
+export async function legacyImage(req: Request, res: Response) {
+  const { model, id } = req.query as { model: string; id: string };
+  const target = await searchService.resolveLegacyImage(model, Number(id));
+  return ok(res, { target });
+}
+
 export async function legacyRedirect(req: Request, res: Response) {
   const { path } = req.query as { path: string };
   const target = await searchService.resolveLegacyRedirect(path);

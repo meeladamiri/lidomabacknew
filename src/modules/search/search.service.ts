@@ -52,7 +52,7 @@ export async function resolveLegacyRedirect(rawPath: string) {
 }
 
 export async function searchCitiesAndProvinces(query: string) {
-  const [cities, provinces] = await Promise.all([
+  const [cities, provinces, residences] = await Promise.all([
     prisma.city.findMany({
       where: { name: { contains: query, mode: "insensitive" } },
       include: { province: true, _count: { select: { residences: true } } },
@@ -62,6 +62,17 @@ export async function searchCitiesAndProvinces(query: string) {
       where: { name: { contains: query, mode: "insensitive" } },
       take: 5,
     }),
+    // Residence-by-name matches — the destination search box shows these
+    // below the city/province suggestions (legacy /api/search_keyword parity).
+    prisma.residence.findMany({
+      where: {
+        state: "PUBLISHED",
+        published: true,
+        name: { contains: query, mode: "insensitive" },
+      },
+      select: { id: true, name: true, reference: true, type: true },
+      take: 8,
+    }),
   ]);
 
   return {
@@ -69,12 +80,20 @@ export async function searchCitiesAndProvinces(query: string) {
       id: c.id,
       name: c.name,
       titleEn: c.titleEn,
+      count: c._count.residences,
       type: "city" as const,
     })),
     provinces: provinces.map((p) => ({
       id: p.id,
       name: p.name,
+      titleEn: p.titleEn,
       type: "province" as const,
+    })),
+    residences: residences.map((r) => ({
+      id: r.id,
+      name: r.name,
+      reference: r.reference,
+      displayType: r.type === "BOOMGARDI" ? "boomgardi" : "suit",
     })),
   };
 }

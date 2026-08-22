@@ -34,6 +34,23 @@ export async function getProvincesAndCities() {
   }));
 }
 
+// Resolves a legacy Odoo SEO path (e.g. "/tags/villa/اجاره-ویلا-در-آبادان")
+// to its 301 target on the new site (populated by
+// scripts/migrate-odoo-tag-urls.ts). Paths are stored percent-decoded with no
+// trailing slash — normalize the incoming path the same way before lookup.
+export async function resolveLegacyRedirect(rawPath: string) {
+  let path = rawPath.trim();
+  try {
+    path = decodeURIComponent(path);
+  } catch {
+    /* malformed encoding — match as-is */
+  }
+  path = path.replace(/\/+$/, "");
+
+  const row = await prisma.legacyRedirect.findUnique({ where: { path }, select: { target: true } });
+  return row?.target ?? null;
+}
+
 export async function searchCitiesAndProvinces(query: string) {
   const [cities, provinces] = await Promise.all([
     prisma.city.findMany({
@@ -134,6 +151,10 @@ export function toCard(residence: Prisma.ResidenceGetPayload<{ select: typeof RE
   };
 }
 
+const REGION_ALIASES: Record<string, string[]> = {
+  shomal: ["مازندران", "گیلان", "گلستان"],
+};
+
 export async function searchResidences(filters: ResidenceSearchFilters) {
   const page = filters.page ?? 1;
   const pageSize = filters.pageSize ?? 20;
@@ -144,7 +165,34 @@ export async function searchResidences(filters: ResidenceSearchFilters) {
   };
 
   if (filters.cityId) where.cityId = filters.cityId;
-  if (filters.cityName) where.city = { name: { contains: filters.cityName, mode: "insensitive" } };
+  if (filters.cityName && REGION_ALIASES[filters.cityName.toLowerCase()]) {
+    // Legacy "region" slugs (Odoo x_category_type='region') that don't map to
+    // a single city/province. Only shomal is wired up for now — it's linked
+    // from the homepage banner and indexed as /search/shomal. The other
+    // region slugs (westtehran, southiran, ...) still need real region
+    // support if their SEO pages matter.
+    where.city = { province: { name: { in: REGION_ALIASES[filters.cityName.toLowerCase()] } } };
+  } else if (filters.cityName) {
+    // Accepts either the Persian name ("تهران") or the hand-curated English
+    // slug ("tehran" — City.titleEn, from Odoo's product_public_category
+    // x_title_en, which every old /search/<slug> SEO URL is built on). A
+    // province name/slug (e.g. "mazandaran") matches all its cities.
+    const q = filters.cityName;
+    where.city = {
+      OR: [
+        { titleEn: { equals: q, mode: "insensitive" } },
+        { name: { contains: q, mode: "insensitive" } },
+        {
+          province: {
+            OR: [
+              { titleEn: { equals: q, mode: "insensitive" } },
+              { name: { contains: q, mode: "insensitive" } },
+            ],
+          },
+        },
+      ],
+    };
+  }
   if (filters.type) where.type = filters.type;
   if (filters.guestsCount) where.maxCapacity = { gte: filters.guestsCount };
   if (filters.minPrice || filters.maxPrice) {

@@ -84,6 +84,7 @@ enum OtpPurpose {
 model Province {
   id        Int      @id @default(autoincrement())
   name      String
+  titleEn   String?  @map("title_en")
   latitude  Float?
   longitude Float?
   cities    City[]
@@ -91,6 +92,19 @@ model Province {
   updatedAt DateTime @updatedAt
 
   @@map("provinces")
+}
+
+// Legacy Odoo SEO URLs (e.g. "/tags/villa/اجاره-ویلا-در-آبادان") -> their
+// 301 target on the new site (e.g. "/search/abadan?villa=1"). Populated from
+// the legacy `tag_url` table by scripts/migrate-odoo-tag-urls.ts; consumed by
+// the frontend's /tags/[...slug] catch-all page so old indexed URLs keep
+// their SEO value.
+model LegacyRedirect {
+  id     Int    @id @default(autoincrement())
+  path   String @unique
+  target String
+
+  @@map("legacy_redirects")
 }
 
 model City {

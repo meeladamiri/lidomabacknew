@@ -13,6 +13,12 @@ export async function searchCities(req: Request, res: Response) {
   return ok(res, data);
 }
 
+export async function legacyRedirect(req: Request, res: Response) {
+  const { path } = req.query as { path: string };
+  const target = await searchService.resolveLegacyRedirect(path);
+  return ok(res, { target });
+}
+
 export async function provincesAndCities(_req: Request, res: Response) {
   const data = await searchService.getProvincesAndCities();
   return ok(res, data);

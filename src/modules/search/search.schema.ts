@@ -6,6 +6,12 @@ export const citySearchSchema = z.object({
   }),
 });
 
+export const legacyRedirectSchema = z.object({
+  query: z.object({
+    path: z.string().min(1).max(500),
+  }),
+});
+
 export const residenceSearchSchema = z.object({
   body: z.object({
     cityId: z.number().int().optional(),

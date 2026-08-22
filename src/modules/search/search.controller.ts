@@ -14,8 +14,9 @@ export async function searchCities(req: Request, res: Response) {
 }
 
 export async function searchPageData(req: Request, res: Response) {
-  const { slug } = req.query as { slug: string };
-  const data = await searchService.getSearchPageData(slug);
+  const { slug, tags } = req.query as { slug: string; tags?: string };
+  const tagList = tags ? tags.split(",").map((t) => t.trim()).filter(Boolean) : undefined;
+  const data = await searchService.getSearchPageData(slug, tagList);
   return ok(res, data);
 }
 

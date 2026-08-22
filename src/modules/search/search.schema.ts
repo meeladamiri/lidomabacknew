@@ -15,6 +15,9 @@ export const legacyRedirectSchema = z.object({
 export const searchPageDataSchema = z.object({
   query: z.object({
     slug: z.string().min(1).max(200),
+    // comma-separated tag keys (?pool=1 pages send tags=pool) — the first
+    // recognized one defines the page's SEO identity
+    tags: z.string().max(300).optional(),
   }),
 });
 

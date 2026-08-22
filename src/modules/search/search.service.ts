@@ -184,6 +184,34 @@ const REGION_ALIASES: Record<string, string[]> = {
   shomal: ["مازندران", "گیلان", "گلستان"],
 };
 
+// Every legacy website_tags row: query-param key -> Persian display name.
+// Tag×city pages (/search/<slug>?<tag>=1) are individually indexed for
+// topical authority — their H1/meta are templated off these names, exactly
+// like the old production site did.
+const TAG_TITLES: Record<string, string> = {
+  villa: "اجاره ویلا",
+  pool: "اجاره ویلا و سوئیت استخردار",
+  luxury: "اجاره ویلا و سوئیت لوکس",
+  jacuzzi: "اجاره ویلا و سوئیت جکوزی دار",
+  forest: "اجاره ویلا و سوئیت جنگلی",
+  mountain: "اجاره ویلا و سوئیت کوهستانی",
+  beach: "اجاره ویلا و سوئیت ساحلی",
+  "jungle-cottage": "اجاره کلبه جنگلی",
+  cottage: "اجاره کلبه چوبی",
+  garden: "اجاره باغ ویلا",
+  hotelapartment: "اجاره هتل آپارتمان",
+  village: "اجاره خانه روستایی",
+  guesthouse: "اجاره مهمان خانه و هاستل",
+  hostel: "اجاره هاستل",
+  economic: "اجاره ویلا و سوئیت ارزان",
+  fast: "رزرو آنی",
+  apartment: "اجاره روزانه خانه و آپارتمان مبله",
+  boomgardi: "اجاره اقامتگاه بوم گردی",
+};
+
+// Public site origin for absolute canonical URLs (matches production).
+const SITE_ORIGIN = "https://lidomatrip.com";
+
 // The category tags surfaced as "جستجوهای مرتبط" on search pages — the
 // legacy website_tags rows with x_suggest = true, in their original order.
 // `tag` is the query-param key (/search/<slug>?<tag>=1), `title` the label.
@@ -207,7 +235,7 @@ const SUGGESTED_TAGS: { tag: string; title: string }[] = [
 // SEO page data for /search/<slug> — the new-backend equivalent of legacy
 // Odoo's /api/search/new_page_data (meta tags, page H1, guide content block,
 // related-search tag links, and template-generated FAQs).
-export async function getSearchPageData(slug: string) {
+export async function getSearchPageData(slug: string, tags?: string[]) {
   const q = slug.trim();
 
   const city = await prisma.city.findFirst({
@@ -252,6 +280,37 @@ export async function getSearchPageData(slug: string) {
       ]
     : [];
 
+  // Tag×city pages (?pool=1 etc.) carry their own SEO identity — H1, meta
+  // title, description, and canonical are templated off the tag's Persian
+  // name, byte-matching old production (verified against its
+  // new_page_data). The first recognized tag wins.
+  const tagKey = (tags ?? []).find((t) => TAG_TITLES[t]) ?? null;
+  const tagTitle = tagKey ? TAG_TITLES[tagKey] : null;
+
+  const cityCanonical = place?.titleEn ? `${SITE_ORIGIN}/search/${place.titleEn}` : null;
+
+  let page_title: string | null;
+  let title: string | null;
+  let description: string | null;
+  let canonical: string | null;
+
+  if (tagTitle) {
+    const core = placeName ? `${tagTitle} در ${placeName}` : tagTitle;
+    page_title = core;
+    title = `${core} | تضمین امنیت و نظافت | لیدوما تریپ`;
+    description = `سایت رسمی ${core} | تضمین امنیت، قیمت و نظافت | پشتیبانی 7/24 | رزرو تلفنی و آنلاین قطعی${
+      placeName ? ` در بهترین مناطق ${placeName}` : ""
+    }`;
+    canonical = cityCanonical
+      ? `${cityCanonical}?${tagKey}=1`
+      : `${SITE_ORIGIN}/search?${tagKey}=1`;
+  } else {
+    page_title = placeName ? `اجاره ویلا، سوئیت و اقامتگاه در ${placeName}` : null;
+    title = place?.metaTitle ?? null;
+    description = place?.metaDescription ?? null;
+    canonical = cityCanonical;
+  }
+
   return {
     city: city ? { name: city.name, title_en: city.titleEn } : null,
     province: city?.province
@@ -260,12 +319,14 @@ export async function getSearchPageData(slug: string) {
       ? { name: province.name, title_en: province.titleEn }
       : null,
     cat_name: placeName || null,
-    page_title: placeName ? `اجاره ویلا، سوئیت و اقامتگاه در ${placeName}` : null,
-    title: place?.metaTitle ?? null,
-    description: place?.metaDescription ?? null,
-    content_title: place?.contentTitle ?? null,
-    content: place?.contentHtml ?? null,
-    canonical: place?.titleEn ? `/search/${place.titleEn}` : null,
+    page_title,
+    title,
+    description,
+    // The city guide block belongs to the plain city page only — tag pages
+    // don't show it (matches production).
+    content_title: tagTitle ? null : place?.contentTitle ?? null,
+    content: tagTitle ? null : place?.contentHtml ?? null,
+    canonical,
     related_tags: placeName
       ? SUGGESTED_TAGS.map((t) => ({
           tag: t.tag,
@@ -274,7 +335,7 @@ export async function getSearchPageData(slug: string) {
           title: t.title,
         }))
       : SUGGESTED_TAGS.map((t) => ({ tag: t.tag, cat_title: null, cat_name: null, title: t.title })),
-    faqs,
+    faqs: tagTitle ? [] : faqs,
   };
 }
 

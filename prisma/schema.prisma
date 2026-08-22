@@ -241,6 +241,9 @@ model RefreshToken {
 
 model Amenity {
   id         Int               @id @default(autoincrement())
+  // stable English key from Odoo's product_attribute.x_title_en (pool,
+  // jacuzzi, parking, type, area, ...) — search tag filters match on this
+  key        String?           @unique
   category   String?
   name       String
   iconUrl    String?           @map("icon_url")
@@ -268,6 +271,9 @@ model AmenityFeature {
 
 model Rule {
   id         Int            @id @default(autoincrement())
+  // stable English key from Odoo's product_attribute.x_title_en
+  // (smoking, pets, events, 24h, singles, id-required, cancellation)
+  key        String?        @unique
   category   String?
   name       String
   iconUrl    String?        @map("icon_url")

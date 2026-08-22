@@ -39,6 +39,7 @@ export const residenceSearchSchema = z.object({
     minPrice: z.number().min(0).optional(),
     maxPrice: z.number().min(0).optional(),
     type: z.enum(["BOOMGARDI", "SUIT"]).optional(),
+    features: z.array(z.string().max(50)).max(20).optional(),
     mapBounds: z
       .object({
         minLat: z.number(),

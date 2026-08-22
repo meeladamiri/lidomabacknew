@@ -108,9 +108,51 @@ export async function searchCitiesAndProvinces(query: string) {
   };
 }
 
+// Feature-key filters (?pool=1, ?villa=1, ?jungle=1, ?smoking=1, ...) — the
+// SEO tags AND the search-page filter modal both send these. Three kinds:
+//   1. TAG_AMENITY_FILTERS: keys that resolve to an Amenity.key, optionally
+//      matching the stored value (categorical attrs like type/area). Binary
+//      amenities filter on link existence ("ندارد" links are never stored).
+//   2. BINARY_AMENITY_KEYS: the filter-modal amenity checkboxes — the key IS
+//      the Amenity.key (both come from Odoo's x_title_en).
+//   3. RULE_KEYS: rule checkboxes — residence must have the rule with value
+//      "بله" (values are بله/خیر, cancellation excepted).
+const TAG_AMENITY_FILTERS: Record<string, { key: string; value?: string }> = {
+  // SEO tags
+  villa: { key: "type", value: "خانه ویلایی" },
+  cottage: { key: "type", value: "کلبه" },
+  "jungle-cottage": { key: "type", value: "کلبه" },
+  hotelapartment: { key: "type", value: "هتل آپارتمان" },
+  apartment: { key: "type", value: "آپارتمان" },
+  guesthouse: { key: "type", value: "مهمان خانه" },
+  hostel: { key: "type", value: "مهمان خانه" },
+  village: { key: "area", value: "روستایی" },
+  forest: { key: "area", value: "جنگلی" },
+  mountain: { key: "area", value: "کوهستانی" },
+  beach: { key: "area", value: "ساحلی" },
+  // filter-modal region options (residences_regions constant)
+  urban: { key: "area", value: "شهری" },
+  rural: { key: "area", value: "روستایی" },
+  suburb: { key: "area", value: "حومه شهر" },
+  jungle: { key: "area", value: "جنگلی" },
+  desert: { key: "area", value: "بیابانی" },
+};
+
+const BINARY_AMENITY_KEYS = new Set([
+  "bathroom", "guard", "food", "billiard", "jacuzzi", "sauna", "pool",
+  "barbecue", "squat-toilet", "western-toilet", "elevator", "parking",
+  "wardrobe", "dining-table", "furniture", "hairdryer", "iron", "washer",
+  "vacuum", "refrigerator", "microwave", "stove", "kitchenware", "cooling",
+  "heating", "toiletries", "internet", "tv", "mobile", "blanket", "balcony",
+  "mattress", "view", "gym", "breakfast", "cosmetics", "recreational",
+]);
+
+const RULE_KEYS = new Set(["smoking", "singles", "id-required", "events", "24h", "pets"]);
+
 export interface ResidenceSearchFilters {
   cityId?: number;
   cityName?: string;
+  features?: string[];
   startDate?: string;
   endDate?: string;
   guestsCount?: number;
@@ -378,6 +420,40 @@ export async function searchResidences(filters: ResidenceSearchFilters) {
     };
   }
   if (filters.type) where.type = filters.type;
+
+  // SEO tag filters (?pool=1, ?villa=1, ...). Amenity-backed tags AND
+  // together; luxury/economic are price-band tags from the legacy
+  // website_tags domains (500,000 threshold); fast maps to isFast.
+  if (filters.features?.length) {
+    const and: Prisma.ResidenceWhereInput[] = [];
+    for (const f of filters.features) {
+      const spec = TAG_AMENITY_FILTERS[f];
+      if (spec) {
+        and.push({
+          amenities: {
+            some: {
+              amenity: { key: spec.key },
+              ...(spec.value
+                ? { extraFeatures: { path: ["value"], string_contains: spec.value } }
+                : {}),
+            },
+          },
+        });
+      } else if (BINARY_AMENITY_KEYS.has(f)) {
+        and.push({ amenities: { some: { amenity: { key: f } } } });
+      } else if (RULE_KEYS.has(f)) {
+        and.push({ rules: { some: { rule: { key: f }, value: { equals: "بله" } } } });
+      } else if (f === "luxury") {
+        and.push({ weekPrice: { gt: 500000 } });
+      } else if (f === "economic") {
+        and.push({ weekPrice: { lte: 500000 } });
+      } else if (f === "fast") {
+        and.push({ isFast: true });
+      }
+      // unknown keys are ignored
+    }
+    if (and.length) where.AND = and;
+  }
   if (filters.guestsCount) where.maxCapacity = { gte: filters.guestsCount };
   if (filters.minPrice || filters.maxPrice) {
     where.weekPrice = {

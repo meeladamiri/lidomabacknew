@@ -85,6 +85,11 @@ model Province {
   id        Int      @id @default(autoincrement())
   name      String
   titleEn   String?  @map("title_en")
+  // SEO fields for the /search/<titleEn> province page — same sources as City.
+  metaTitle       String? @map("meta_title")
+  metaDescription String? @map("meta_description")
+  contentTitle    String? @map("content_title")
+  contentHtml     String? @map("content_html")
   latitude  Float?
   longitude Float?
   cities    City[]
@@ -112,6 +117,12 @@ model City {
   name       String
   titleEn    String?     @map("title_en")
   imageUrl   String?     @map("image_url")
+  // SEO fields for the /search/<titleEn> city page, migrated from Odoo's
+  // product_public_category (website_meta_*, content, x_content_title).
+  metaTitle       String? @map("meta_title")
+  metaDescription String? @map("meta_description")
+  contentTitle    String? @map("content_title")
+  contentHtml     String? @map("content_html")
   latitude   Float?
   longitude  Float?
   provinceId Int?        @map("province_id")

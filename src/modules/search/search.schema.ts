@@ -12,6 +12,12 @@ export const legacyRedirectSchema = z.object({
   }),
 });
 
+export const searchPageDataSchema = z.object({
+  query: z.object({
+    slug: z.string().min(1).max(200),
+  }),
+});
+
 export const residenceSearchSchema = z.object({
   body: z.object({
     cityId: z.number().int().optional(),

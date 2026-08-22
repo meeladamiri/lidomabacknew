@@ -155,6 +155,100 @@ const REGION_ALIASES: Record<string, string[]> = {
   shomal: ["مازندران", "گیلان", "گلستان"],
 };
 
+// The category tags surfaced as "جستجوهای مرتبط" on search pages — the
+// legacy website_tags rows with x_suggest = true, in their original order.
+// `tag` is the query-param key (/search/<slug>?<tag>=1), `title` the label.
+const SUGGESTED_TAGS: { tag: string; title: string }[] = [
+  { tag: "villa", title: "اجاره ویلا" },
+  { tag: "pool", title: "اجاره ویلا و سوئیت استخردار" },
+  { tag: "luxury", title: "اجاره ویلا و سوئیت لوکس" },
+  { tag: "jacuzzi", title: "اجاره ویلا و سوئیت جکوزی دار" },
+  { tag: "forest", title: "اجاره ویلا و سوئیت جنگلی" },
+  { tag: "mountain", title: "اجاره ویلا و سوئیت کوهستانی" },
+  { tag: "beach", title: "اجاره ویلا و سوئیت ساحلی" },
+  { tag: "cottage", title: "اجاره کلبه چوبی" },
+  { tag: "hotelapartment", title: "اجاره هتل آپارتمان" },
+  { tag: "village", title: "اجاره خانه روستایی" },
+  { tag: "guesthouse", title: "اجاره مهمان خانه و هاستل" },
+  { tag: "economic", title: "اجاره ویلا و سوئیت ارزان" },
+  { tag: "apartment", title: "اجاره روزانه خانه و آپارتمان مبله" },
+  { tag: "boomgardi", title: "اجاره اقامتگاه بوم گردی" },
+];
+
+// SEO page data for /search/<slug> — the new-backend equivalent of legacy
+// Odoo's /api/search/new_page_data (meta tags, page H1, guide content block,
+// related-search tag links, and template-generated FAQs).
+export async function getSearchPageData(slug: string) {
+  const q = slug.trim();
+
+  const city = await prisma.city.findFirst({
+    where: {
+      OR: [{ titleEn: { equals: q, mode: "insensitive" } }, { name: q }],
+    },
+    include: { province: true },
+  });
+
+  const province = city
+    ? null
+    : await prisma.province.findFirst({
+        where: { OR: [{ titleEn: { equals: q, mode: "insensitive" } }, { name: q }] },
+      });
+
+  const place = city ?? province;
+  const placeName = place?.name ?? "";
+  const placeSlug = place?.titleEn ?? q;
+
+  const faqs = placeName
+    ? [
+        {
+          id: 1,
+          question: `چطور در ${placeName} اقامتگاه رزرو کنم؟`,
+          answer: `کافیه از بین اقامتگاه‌های ${placeName} در همین صفحه، مورد دلخواهتون رو انتخاب کنید، وارد صفحه‌ی اقامتگاه بشید و تاریخ ورود و خروج رو مشخص و درخواست رزرو رو رایگان ثبت کنید. تیم پشتیبانی لیدوماتریپ هم به‌صورت ۲۴ ساعته پاسخگوی شماست.`,
+        },
+        {
+          id: 2,
+          question: `قیمت اجاره اقامتگاه در ${placeName} شبی چنده؟`,
+          answer: `قیمت بر اساس نوع اقامتگاه، ظرفیت، امکانات و فصل سفر متفاوته. با فیلتر «قیمت برای یک شب» در همین صفحه می‌تونید بازه‌ی قیمتی موردنظرتون رو مشخص کنید و نتایج رو مقایسه کنید.`,
+        },
+        {
+          id: 3,
+          question: `آیا رزرو در لیدوماتریپ قطعیه و ضمانت داره؟`,
+          answer: `بله — لیدوماتریپ صحت اطلاعات اقامتگاه، تحویل به‌موقع و نظافت رو تضمین می‌کنه و برای هر رزرو فاکتور رسمی صادر می‌شه. در صورت بروز هر مشکلی، پشتیبانی ۲۴ ساعته پیگیری می‌کنه.`,
+        },
+        {
+          id: 4,
+          question: `امکان کنسل‌کردن رزرو در ${placeName} هست؟`,
+          answer: `بله، طبق سیاست کنسلی هر اقامتگاه (که در صفحه‌ی همون اقامتگاه ذکر شده) می‌تونید رزرو رو لغو کنید. جزئیات کامل در صفحه‌ی «قوانین کنسلی رزرو» سایت اومده.`,
+        },
+      ]
+    : [];
+
+  return {
+    city: city ? { name: city.name, title_en: city.titleEn } : null,
+    province: city?.province
+      ? { name: city.province.name, title_en: city.province.titleEn }
+      : province
+      ? { name: province.name, title_en: province.titleEn }
+      : null,
+    cat_name: placeName || null,
+    page_title: placeName ? `اجاره ویلا، سوئیت و اقامتگاه در ${placeName}` : null,
+    title: place?.metaTitle ?? null,
+    description: place?.metaDescription ?? null,
+    content_title: place?.contentTitle ?? null,
+    content: place?.contentHtml ?? null,
+    canonical: place?.titleEn ? `/search/${place.titleEn}` : null,
+    related_tags: placeName
+      ? SUGGESTED_TAGS.map((t) => ({
+          tag: t.tag,
+          cat_title: placeSlug,
+          cat_name: placeName,
+          title: t.title,
+        }))
+      : SUGGESTED_TAGS.map((t) => ({ tag: t.tag, cat_title: null, cat_name: null, title: t.title })),
+    faqs,
+  };
+}
+
 export async function searchResidences(filters: ResidenceSearchFilters) {
   const page = filters.page ?? 1;
   const pageSize = filters.pageSize ?? 20;

@@ -73,6 +73,32 @@ export const yellowCardSchema = z.object({
   body: z.object({ reason: z.string().min(1).max(1000) }),
 });
 
+export const residenceListQuerySchema = z.object({
+  query: z.object({
+    page: z.coerce.number().int().min(1).optional(),
+    pageSize: z.coerce.number().int().min(1).max(100).optional(),
+    q: z.string().optional(),
+    state: z.string().optional(),
+    tab: z.enum(["all", "suit", "boomgardi", "pending"]).optional(),
+    sort: z
+      .enum(["newest", "oldest", "price_asc", "price_desc", "importance", "rating"])
+      .optional(),
+    filters: z.string().optional(),
+  }),
+});
+
+// Multi-select actions on the residence list.
+export const bulkIdsSchema = z.object({
+  body: z.object({ ids: z.array(z.coerce.number().int()).min(1).max(500) }),
+});
+
+export const bulkStateSchema = z.object({
+  body: z.object({
+    ids: z.array(z.coerce.number().int()).min(1).max(500),
+    state: z.enum(["DRAFT", "PENDING", "PUBLISHED", "REJECTED", "DEACTIVATED", "DELETED"]),
+  }),
+});
+
 export const userListQuerySchema = z.object({
   query: z.object({
     page: z.coerce.number().int().min(1).optional(),

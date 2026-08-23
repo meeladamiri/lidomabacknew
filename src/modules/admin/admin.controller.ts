@@ -103,12 +103,22 @@ export async function residenceFilterFields(_req: Request, res: Response) {
 }
 
 export async function listResidences(req: Request, res: Response) {
+  const q = req.query as Record<string, unknown>;
   const result = await service.listResidences({
-    page: getOptionalNumber(req.query.page),
-    pageSize: getOptionalNumber(req.query.pageSize),
-    q: getOptionalString(req.query.q),
-    state: getOptionalString(req.query.state),
-    filters: getFilters(req.query.filters),
+    page: getOptionalNumber(q.page),
+    pageSize: getOptionalNumber(q.pageSize),
+    q: getOptionalString(q.q),
+    state: getOptionalString(q.state),
+    tab: q.tab as service.ResidenceTab | undefined,
+    sort: q.sort as
+      | "newest"
+      | "oldest"
+      | "price_asc"
+      | "price_desc"
+      | "importance"
+      | "rating"
+      | undefined,
+    filters: getFilters(q.filters),
   });
 
   return paginated(res, result.items, {
@@ -116,6 +126,29 @@ export async function listResidences(req: Request, res: Response) {
     pageSize: result.pageSize,
     total: result.total,
   });
+}
+
+export async function residenceTabCounts(_req: Request, res: Response) {
+  return ok(res, await service.residenceTabCounts());
+}
+
+export async function bulkResidenceState(req: Request, res: Response) {
+  return ok(res, await service.bulkUpdateResidenceState(req.body.ids, req.body.state));
+}
+
+export async function bulkDeleteResidences(req: Request, res: Response) {
+  return ok(res, await service.bulkDeleteResidences(req.body.ids));
+}
+
+export async function bulkCopyResidences(req: Request, res: Response) {
+  return ok(res, await service.bulkCopyResidences(req.body.ids));
+}
+
+export async function exportResidences(req: Request, res: Response) {
+  const csv = await service.exportResidencesCsv(req.body.ids);
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", 'attachment; filename="residences.csv"');
+  return res.send(csv);
 }
 
 export async function getResidence(req: Request, res: Response) {

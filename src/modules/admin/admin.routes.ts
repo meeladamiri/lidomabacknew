@@ -7,6 +7,9 @@ import {
   idParamSchema,
   listQuerySchema,
   userListQuerySchema,
+  residenceListQuerySchema,
+  bulkIdsSchema,
+  bulkStateSchema,
   createUserSchema,
   setPasswordSchema,
   yellowCardSchema,
@@ -51,7 +54,12 @@ router.post("/users/:id/yellow-cards", validate(yellowCardSchema), asyncHandler(
 router.delete("/yellow-cards/:id", validate(idParamSchema), asyncHandler(controller.removeYellowCard));
 
 router.get("/residences/filter-fields", asyncHandler(controller.residenceFilterFields));
-router.get("/residences", validate(listQuerySchema), asyncHandler(controller.listResidences));
+router.get("/residences/tab-counts", asyncHandler(controller.residenceTabCounts));
+router.get("/residences", validate(residenceListQuerySchema), asyncHandler(controller.listResidences));
+router.post("/residences/bulk/state", validate(bulkStateSchema), asyncHandler(controller.bulkResidenceState));
+router.post("/residences/bulk/delete", validate(bulkIdsSchema), asyncHandler(controller.bulkDeleteResidences));
+router.post("/residences/bulk/copy", validate(bulkIdsSchema), asyncHandler(controller.bulkCopyResidences));
+router.post("/residences/bulk/export", validate(bulkIdsSchema), asyncHandler(controller.exportResidences));
 router.get("/residences/:id", validate(idParamSchema), asyncHandler(controller.getResidence));
 router.patch(
   "/residences/:id/state",

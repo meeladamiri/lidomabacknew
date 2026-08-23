@@ -7,6 +7,8 @@ import { prisma } from "@/lib/prisma";
 import { AppError } from "@/lib/errors";
 import { parsePagination } from "@/utils/pagination";
 import bcrypt from "bcryptjs";
+import { publicResidenceId } from "@/lib/publicId";
+import { generateReference } from "@/utils/reference";
 import { RESERVATION_INCLUDE, releaseCalendarDays } from "@/modules/reservations/reservations.service";
 import * as residencesService from "@/modules/residences/residences.service";
 
@@ -468,19 +470,61 @@ function buildResidenceFilterWhere(filters: FilterCondition[]): Prisma.Residence
   return where;
 }
 
+// Residence list tabs ("همه اقامتگاه‌ها / ویلا و سوئیت / بوم‌گردی‌ها /
+// در انتظار تایید").
+export type ResidenceTab = "all" | "suit" | "boomgardi" | "pending";
+
+function residenceTabWhere(tab: ResidenceTab | undefined): Prisma.ResidenceWhereInput {
+  switch (tab) {
+    case "suit":
+      return { type: "SUIT" };
+    case "boomgardi":
+      return { type: "BOOMGARDI" };
+    case "pending":
+      return { state: "PENDING" };
+    default:
+      return {};
+  }
+}
+
 export async function listResidences(params: {
   page?: number;
   pageSize?: number;
   q?: string;
   state?: string;
+  tab?: ResidenceTab;
+  sort?: "newest" | "oldest" | "price_asc" | "price_desc" | "importance" | "rating";
   filters?: FilterCondition[];
 }) {
   const { page, pageSize, skip, take } = parsePagination(params);
   const where: Prisma.ResidenceWhereInput = {
+    ...residenceTabWhere(params.tab),
     ...(params.state ? { state: params.state as ResidenceState } : {}),
-    ...(params.q ? { name: { contains: params.q, mode: "insensitive" } } : {}),
+    ...(params.q
+      ? {
+          OR: [
+            { name: { contains: params.q, mode: "insensitive" } },
+            { reference: { contains: params.q, mode: "insensitive" } },
+            { host: { phone: { contains: params.q } } },
+            { host: { name: { contains: params.q, mode: "insensitive" } } },
+          ],
+        }
+      : {}),
     ...(params.filters?.length ? buildResidenceFilterWhere(params.filters) : {}),
   };
+
+  const orderBy: Prisma.ResidenceOrderByWithRelationInput =
+    params.sort === "oldest"
+      ? { createdAt: "asc" }
+      : params.sort === "price_asc"
+        ? { weekPrice: "asc" }
+        : params.sort === "price_desc"
+          ? { weekPrice: "desc" }
+          : params.sort === "importance"
+            ? { importance: "desc" }
+            : params.sort === "rating"
+              ? { averageRating: "desc" }
+              : { createdAt: "desc" };
 
   const [total, items] = await Promise.all([
     prisma.residence.count({ where }),
@@ -488,16 +532,153 @@ export async function listResidences(params: {
       where,
       skip,
       take,
-      orderBy: { createdAt: "desc" },
+      orderBy,
       include: {
         host: { select: { id: true, name: true, phone: true } },
-        city: true,
+        city: { include: { province: { select: { name: true } } } },
         images: { take: 1, orderBy: { sortOrder: "asc" } },
+        _count: { select: { rooms: true, reservations: true } },
       },
     }),
   ]);
 
-  return { total, page, pageSize, items };
+  return {
+    total,
+    page,
+    pageSize,
+    items: items.map(({ _count, ...r }) => ({
+      ...r,
+      // legacy-URL contract: the public id is the Odoo id for migrated rows
+      publicId: publicResidenceId(r),
+      roomsCount: _count.rooms,
+      reservationsCount: _count.reservations,
+    })),
+  };
+}
+
+export async function residenceTabCounts() {
+  const [all, suit, boomgardi, pending] = await Promise.all([
+    prisma.residence.count(),
+    prisma.residence.count({ where: { type: "SUIT" } }),
+    prisma.residence.count({ where: { type: "BOOMGARDI" } }),
+    prisma.residence.count({ where: { state: "PENDING" } }),
+  ]);
+  return { all, suit, boomgardi, pending };
+}
+
+// ---------- Bulk actions (list-view multi-select) ----------
+
+export async function bulkUpdateResidenceState(ids: number[], state: ResidenceState) {
+  const result = await prisma.residence.updateMany({
+    where: { id: { in: ids } },
+    data: { state, ...(state === "PUBLISHED" ? { published: true } : { published: false }) },
+  });
+  return { updated: result.count };
+}
+
+// Soft delete — keeps reservation history intact.
+export async function bulkDeleteResidences(ids: number[]) {
+  const result = await prisma.residence.updateMany({
+    where: { id: { in: ids } },
+    data: { state: "DELETED", published: false },
+  });
+  return { deleted: result.count };
+}
+
+/** Duplicates residences (specs + amenities + rules + rooms) as new drafts. */
+export async function bulkCopyResidences(ids: number[]) {
+  let copied = 0;
+  for (const id of ids) {
+    const src = await prisma.residence.findUnique({
+      where: { id },
+      include: { amenities: true, rules: true, rooms: true },
+    });
+    if (!src) continue;
+
+    const {
+      id: _id,
+      reference,
+      createdAt,
+      updatedAt,
+      amenities,
+      rules,
+      rooms,
+      // nullable Json columns: Prisma's create input rejects a plain `null`,
+      // so they're re-applied below via `?? undefined`
+      extraRules,
+      boomgardiFeatures,
+      ...fields
+    } = src;
+    await prisma.residence.create({
+      data: {
+        ...fields,
+        extraRules: extraRules ?? undefined,
+        boomgardiFeatures: boomgardiFeatures ?? undefined,
+        name: `${src.name} (کپی)`,
+        reference: generateReference("RES-"),
+        state: "DRAFT",
+        published: false,
+        amenities: {
+          create: amenities.map((a) => ({
+            amenityId: a.amenityId,
+            extraFeatures: a.extraFeatures ?? undefined,
+          })),
+        },
+        rules: { create: rules.map((r) => ({ ruleId: r.ruleId, value: r.value ?? undefined })) },
+        rooms: {
+          create: rooms.map(({ id: _rid, residenceId, ...room }) => room),
+        },
+      },
+    });
+    copied++;
+  }
+  return { copied };
+}
+
+/** CSV export for the current selection (UTF-8 BOM so Excel reads Persian). */
+export async function exportResidencesCsv(ids: number[]) {
+  const rows = await prisma.residence.findMany({
+    where: { id: { in: ids } },
+    include: {
+      host: { select: { name: true, phone: true } },
+      city: { include: { province: { select: { name: true } } } },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  const header = [
+    "کد",
+    "نام اقامتگاه",
+    "نوع",
+    "وضعیت",
+    "استان",
+    "شهر",
+    "میزبان",
+    "شماره میزبان",
+    "قیمت هفته",
+    "امتیاز",
+    "تاریخ ایجاد",
+  ];
+  const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const lines = rows.map((r) =>
+    [
+      publicResidenceId(r),
+      r.name,
+      r.type === "BOOMGARDI" ? "بوم‌گردی" : "ویلا/سوئیت",
+      r.state,
+      r.city?.province?.name ?? "",
+      r.city?.name ?? "",
+      r.host?.name ?? "",
+      r.host?.phone ?? "",
+      r.weekPrice ?? 0,
+      r.averageRating ?? 0,
+      r.createdAt.toISOString().slice(0, 10),
+    ]
+      .map(esc)
+      .join(",")
+  );
+
+  return "﻿" + [header.map(esc).join(","), ...lines].join("\r\n");
 }
 
 export async function getResidence(id: number) {

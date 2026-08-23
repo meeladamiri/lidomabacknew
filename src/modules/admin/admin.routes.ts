@@ -10,6 +10,7 @@ import {
   residenceListQuerySchema,
   bulkIdsSchema,
   bulkStateSchema,
+  bulkTypeSchema,
   createUserSchema,
   setPasswordSchema,
   yellowCardSchema,
@@ -57,6 +58,7 @@ router.get("/residences/filter-fields", asyncHandler(controller.residenceFilterF
 router.get("/residences/tab-counts", asyncHandler(controller.residenceTabCounts));
 router.get("/residences", validate(residenceListQuerySchema), asyncHandler(controller.listResidences));
 router.post("/residences/bulk/state", validate(bulkStateSchema), asyncHandler(controller.bulkResidenceState));
+router.post("/residences/bulk/type", validate(bulkTypeSchema), asyncHandler(controller.bulkResidenceType));
 router.post("/residences/bulk/delete", validate(bulkIdsSchema), asyncHandler(controller.bulkDeleteResidences));
 router.post("/residences/bulk/copy", validate(bulkIdsSchema), asyncHandler(controller.bulkCopyResidences));
 router.post("/residences/bulk/export", validate(bulkIdsSchema), asyncHandler(controller.exportResidences));

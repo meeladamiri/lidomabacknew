@@ -99,6 +99,13 @@ export const bulkStateSchema = z.object({
   }),
 });
 
+export const bulkTypeSchema = z.object({
+  body: z.object({
+    ids: z.array(z.coerce.number().int()).min(1).max(500),
+    type: z.enum(["SUIT", "BOOMGARDI", "HOTEL"]),
+  }),
+});
+
 export const userListQuerySchema = z.object({
   query: z.object({
     page: z.coerce.number().int().min(1).optional(),

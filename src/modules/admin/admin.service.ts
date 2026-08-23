@@ -2,6 +2,7 @@ import {
   Prisma,
   ResidenceState,
   ReservationState,
+  type ResidenceType,
 } from "../../generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { AppError } from "@/lib/errors";
@@ -577,6 +578,12 @@ export async function bulkUpdateResidenceState(ids: number[], state: ResidenceSt
     where: { id: { in: ids } },
     data: { state, ...(state === "PUBLISHED" ? { published: true } : { published: false }) },
   });
+  return { updated: result.count };
+}
+
+/** Sets "نوع ملک" on the selection (the row menu's type entries). */
+export async function bulkUpdateResidenceType(ids: number[], type: ResidenceType) {
+  const result = await prisma.residence.updateMany({ where: { id: { in: ids } }, data: { type } });
   return { updated: result.count };
 }
 

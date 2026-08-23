@@ -136,6 +136,10 @@ export async function bulkResidenceState(req: Request, res: Response) {
   return ok(res, await service.bulkUpdateResidenceState(req.body.ids, req.body.state));
 }
 
+export async function bulkResidenceType(req: Request, res: Response) {
+  return ok(res, await service.bulkUpdateResidenceType(req.body.ids, req.body.type));
+}
+
 export async function bulkDeleteResidences(req: Request, res: Response) {
   return ok(res, await service.bulkDeleteResidences(req.body.ids));
 }

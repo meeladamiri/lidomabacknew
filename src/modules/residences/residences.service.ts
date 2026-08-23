@@ -4,6 +4,7 @@ import { AppError } from "@/lib/errors";
 import { generateReference } from "@/utils/reference";
 import { deleteStoredFile } from "@/middleware/upload";
 import { RESIDENCE_CARD_SELECT, toCard } from "@/modules/search/search.service";
+import { publicResidenceId, resolvePublicResidenceId } from "@/lib/publicId";
 
 // ---------- Public ----------
 
@@ -44,11 +45,15 @@ function buildRelatedTags(
     tag: r.tag,
     cat_title: city.titleEn,
     cat_name: city.name,
-    title: r.title,
+    // e.g. "اجاره ویلا و سوئیت استخردار در شیراز" — same as the tag pages' H1
+    title: `${r.title} در ${city.name}`,
   }));
 }
 
-export async function getResidenceDetail(id: number) {
+export async function getResidenceDetail(rawId: number) {
+  // legacy-URL contract: /rentals/<id> uses the Odoo id for migrated
+  // residences (see lib/publicId.ts)
+  const id = await resolvePublicResidenceId(rawId);
   const residence = await prisma.residence.findFirst({
     where: { id, state: "PUBLISHED", published: true },
     include: {
@@ -79,18 +84,26 @@ export async function getResidenceDetail(id: number) {
     },
     select: {
       id: true,
+      reference: true,
       name: true,
       averageRating: true,
       weekPrice: true,
       maxCapacity: true,
       images: { take: 1, orderBy: { sortOrder: "asc" } },
+      rooms: { select: { id: true } },
     },
     take: 6,
   });
 
   const tags = buildRelatedTags(residence.amenities, residence.city);
 
-  return { residence, similar, tags };
+  return {
+    residence,
+    // legacy-URL contract for links + the displayed "کد آگهی"
+    publicId: publicResidenceId(residence),
+    similar: similar.map((s) => ({ ...s, id: publicResidenceId(s), roomsCount: s.rooms.length })),
+    tags,
+  };
 }
 
 export async function getHostProfile(hostId: number) {

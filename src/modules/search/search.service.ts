@@ -1,5 +1,6 @@
 import { Prisma } from "../../generated/prisma/client";
 import { prisma } from "@/lib/prisma";
+import { publicResidenceId } from "@/lib/publicId";
 
 export async function getPopularDestinations() {
   // Cities ranked by number of published residences.
@@ -197,7 +198,8 @@ export const RESIDENCE_CARD_SELECT = {
 
 export function toCard(residence: Prisma.ResidenceGetPayload<{ select: typeof RESIDENCE_CARD_SELECT }>) {
   return {
-    id: residence.id,
+    // legacy-URL contract: migrated residences expose their Odoo id (see lib/publicId.ts)
+    id: publicResidenceId(residence),
     reference: residence.reference,
     name: residence.name,
     name2: residence.name2,

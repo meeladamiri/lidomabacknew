@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { AppError } from "@/lib/errors";
 import { generateReference } from "@/utils/reference";
 import { calculateStayPrice } from "./pricing";
+import { resolvePublicResidenceId } from "@/lib/publicId";
 
 export const RESERVATION_INCLUDE = {
   residence: {
@@ -91,7 +92,9 @@ export async function createReservation(
 ) {
   const residence = await prisma.residence.findFirst({
     where: {
-      id: data.residenceId,
+      // legacy-URL contract: the page carries the Odoo id for migrated
+      // residences (see lib/publicId.ts)
+      id: await resolvePublicResidenceId(data.residenceId),
       state: "PUBLISHED",
       published: true,
     },

@@ -7,6 +7,47 @@ import { RESIDENCE_CARD_SELECT, toCard } from "@/modules/search/search.service";
 
 // ---------- Public ----------
 
+// "جستجوهای مرتبط" on a residence page: the SEO tags (see search.service's
+// TAG_TITLES) whose criteria THIS residence matches, targeting its own city
+// (/search/<city>?<tag>=1) — same behavior as the legacy Odoo site.
+// Maps the categorical amenity values (type/area) and binary amenities
+// (pool/jacuzzi) back to their tag keys.
+const RELATED_TAG_RULES: { tag: string; title: string; amenityKey: string; value?: string }[] = [
+  { tag: "villa", title: "اجاره ویلا", amenityKey: "type", value: "خانه ویلایی" },
+  { tag: "apartment", title: "اجاره روزانه خانه و آپارتمان مبله", amenityKey: "type", value: "آپارتمان" },
+  { tag: "cottage", title: "اجاره کلبه چوبی", amenityKey: "type", value: "کلبه" },
+  { tag: "hotelapartment", title: "اجاره هتل آپارتمان", amenityKey: "type", value: "هتل آپارتمان" },
+  { tag: "guesthouse", title: "اجاره مهمان خانه و هاستل", amenityKey: "type", value: "مهمان خانه" },
+  { tag: "forest", title: "اجاره ویلا و سوئیت جنگلی", amenityKey: "area", value: "جنگلی" },
+  { tag: "mountain", title: "اجاره ویلا و سوئیت کوهستانی", amenityKey: "area", value: "کوهستانی" },
+  { tag: "beach", title: "اجاره ویلا و سوئیت ساحلی", amenityKey: "area", value: "ساحلی" },
+  { tag: "village", title: "اجاره خانه روستایی", amenityKey: "area", value: "روستایی" },
+  { tag: "pool", title: "اجاره ویلا و سوئیت استخردار", amenityKey: "pool" },
+  { tag: "jacuzzi", title: "اجاره ویلا و سوئیت جکوزی دار", amenityKey: "jacuzzi" },
+  { tag: "boomgardi", title: "اجاره اقامتگاه بوم گردی", amenityKey: "type", value: "اقامتگاه بوم گردی" },
+];
+
+function buildRelatedTags(
+  amenities: { amenity: { key: string | null }; extraFeatures: unknown }[],
+  city: { name: string; titleEn: string | null } | null
+) {
+  if (!city?.titleEn) return [];
+  const valueByKey = new Map<string, string>();
+  for (const a of amenities) {
+    if (a.amenity.key) valueByKey.set(a.amenity.key, String((a.extraFeatures as any)?.value ?? ""));
+  }
+  return RELATED_TAG_RULES.filter((r) => {
+    const v = valueByKey.get(r.amenityKey);
+    if (v === undefined) return false;
+    return r.value ? v.includes(r.value) : true;
+  }).map((r) => ({
+    tag: r.tag,
+    cat_title: city.titleEn,
+    cat_name: city.name,
+    title: r.title,
+  }));
+}
+
 export async function getResidenceDetail(id: number) {
   const residence = await prisma.residence.findFirst({
     where: { id, state: "PUBLISHED", published: true },
@@ -47,7 +88,9 @@ export async function getResidenceDetail(id: number) {
     take: 6,
   });
 
-  return { residence, similar };
+  const tags = buildRelatedTags(residence.amenities, residence.city);
+
+  return { residence, similar, tags };
 }
 
 export async function getHostProfile(hostId: number) {

@@ -445,10 +445,39 @@ export async function deleteFilterPreset(id: number) {
 
 // ---------- Catalogs ----------
 
+// `features` (sub-feature definitions — the "توضیحات بیشتر" form fields shown
+// per facility) are replaced wholesale when the payload includes them.
+type AmenityPayload = {
+  key?: string;
+  category?: string;
+  name: string;
+  iconUrl?: string;
+  features?: {
+    fieldType: "TEXT" | "DROPDOWN" | "SWITCH" | "CHECKBOX";
+    name: string;
+    placeholder?: string | null;
+    values?: string | null;
+    inFilter?: boolean;
+  }[];
+};
+
 export const amenities = {
   list: () => prisma.amenity.findMany({ include: { features: true } }),
-  create: (data: Prisma.AmenityCreateInput) => prisma.amenity.create({ data }),
-  update: (id: number, data: Prisma.AmenityUpdateInput) => prisma.amenity.update({ where: { id }, data }),
+  create: ({ features, ...data }: AmenityPayload) =>
+    prisma.amenity.create({
+      data: { ...data, ...(features ? { features: { create: features } } : {}) },
+      include: { features: true },
+    }),
+  update: async (id: number, { features, ...data }: AmenityPayload) => {
+    if (features) {
+      await prisma.amenityFeature.deleteMany({ where: { amenityId: id } });
+    }
+    return prisma.amenity.update({
+      where: { id },
+      data: { ...data, ...(features ? { features: { create: features } } : {}) },
+      include: { features: true },
+    });
+  },
   remove: (id: number) => prisma.amenity.delete({ where: { id } }),
 };
 

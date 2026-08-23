@@ -53,14 +53,29 @@ export const updateReservationSchema = z.object({
 
 export const upsertAmenitySchema = z.object({
   body: z.object({
+    key: z.string().max(60).optional(), // stable English identifier (search-tag filters match on it)
     category: z.string().optional(),
     name: z.string().min(1),
     iconUrl: z.string().optional(),
+    // sub-feature definitions ("توضیحات بیشتر" form fields) — replaced
+    // wholesale when provided
+    features: z
+      .array(
+        z.object({
+          fieldType: z.enum(["TEXT", "DROPDOWN", "SWITCH", "CHECKBOX"]),
+          name: z.string().min(1),
+          placeholder: z.string().nullable().optional(),
+          values: z.string().nullable().optional(), // comma-separated options
+          inFilter: z.boolean().optional(),
+        })
+      )
+      .optional(),
   }),
 });
 
 export const upsertRuleSchema = z.object({
   body: z.object({
+    key: z.string().max(60).optional(),
     category: z.string().optional(),
     name: z.string().min(1),
     iconUrl: z.string().optional(),

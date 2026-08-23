@@ -348,6 +348,13 @@ model Residence {
   monthlyDiscount    Float?  @map("monthly_discount")
 
   videoUrl    String? @map("video_url")
+  // Host's free-text rules (legacy Odoo product_template.x_extra_rules) —
+  // {"desc": "...", "<rule attr id>": ""|{"desc": "..."}}; the frontend's
+  // ResRules reads its stringified form.
+  extraRules  Json?   @map("extra_rules")
+  // Boomgardi-only free-text feature names (legacy x_features, "#%"-joined)
+  // — shown as "امکانات بوم گردی" on the detail page.
+  boomgardiFeatures Json? @map("boomgardi_features")
   isFast      Boolean @default(false) @map("is_fast") // instant-book default
   isFull      Boolean @default(false) @map("is_full")
   isOffer     Boolean @default(false) @map("is_offer")

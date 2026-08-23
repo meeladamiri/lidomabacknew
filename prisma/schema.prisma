@@ -152,6 +152,20 @@ model City {
 
 // ---------- Users ----------
 
+// Admin-issued warning ("کارت زرد") with a required reason — shown on the
+// admin user-detail page.
+model UserYellowCard {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  user      User     @relation("UserYellowCards", fields: [userId], references: [id], onDelete: Cascade)
+  reason    String
+  adminId   Int?     @map("admin_id")
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("user_yellow_cards")
+}
+
 model User {
   id                 Int                 @id @default(autoincrement())
   phone              String              @unique
@@ -177,8 +191,13 @@ model User {
   verificationStatus VerificationStatus  @default(NOT_CONFIRMED) @map("verification_status")
   isHost             Boolean             @default(false) @map("is_host")
   role               UserRole            @default(USER)
+  // admin panel: deactivated users can't log in / operate
+  isActive           Boolean             @default(true) @map("is_active")
+  // admin panel: "میزبان ویژه" highlight flag
+  isSpecialHost      Boolean             @default(false) @map("is_special_host")
 
   bankAccount   BankAccount?
+  yellowCards   UserYellowCard[] @relation("UserYellowCards")
   residences    Residence[]     @relation("HostResidences")
   reservationsAsGuest Reservation[] @relation("GuestReservations")
   reservationsAsHost  Reservation[] @relation("HostReservations")

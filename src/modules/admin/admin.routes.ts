@@ -6,6 +6,10 @@ import { upload } from "@/middleware/upload";
 import {
   idParamSchema,
   listQuerySchema,
+  userListQuerySchema,
+  createUserSchema,
+  setPasswordSchema,
+  yellowCardSchema,
   filterPresetSchema,
   residenceStateSchema,
   updateReservationSchema,
@@ -35,10 +39,16 @@ const router = Router();
 router.use(requireAuth, requireAdmin);
 
 router.get("/dashboard/stats", asyncHandler(controller.dashboardStats));
+router.get("/dashboard/overview", asyncHandler(controller.dashboardOverview));
 
-router.get("/users", validate(listQuerySchema), asyncHandler(controller.listUsers));
+router.get("/users/tab-counts", asyncHandler(controller.userTabCounts));
+router.get("/users", validate(userListQuerySchema), asyncHandler(controller.listUsers));
+router.post("/users", validate(createUserSchema), asyncHandler(controller.createUser));
 router.get("/users/:id", validate(idParamSchema), asyncHandler(controller.getUser));
 router.patch("/users/:id", validate(updateUserSchema), asyncHandler(controller.updateUser));
+router.post("/users/:id/password", validate(setPasswordSchema), asyncHandler(controller.setUserPassword));
+router.post("/users/:id/yellow-cards", validate(yellowCardSchema), asyncHandler(controller.addYellowCard));
+router.delete("/yellow-cards/:id", validate(idParamSchema), asyncHandler(controller.removeYellowCard));
 
 router.get("/residences/filter-fields", asyncHandler(controller.residenceFilterFields));
 router.get("/residences", validate(listQuerySchema), asyncHandler(controller.listResidences));

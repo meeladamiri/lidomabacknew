@@ -26,12 +26,65 @@ export const idParamSchema = z.object({
   params: z.object({ id: z.coerce.number().int() }),
 });
 
+const userProfileFields = {
+  name: z.string().max(120).optional(),
+  email: z.string().email().max(180).optional().or(z.literal("")),
+  nationalCode: z.string().max(20).optional(),
+  contactPhone: z.string().max(30).optional(),
+  emergencyPhone: z.string().max(30).optional(),
+  address: z.string().max(500).optional(),
+  job: z.string().max(120).optional(),
+  education: z.string().max(120).optional(),
+  description: z.string().max(2000).optional(),
+  birthDay: z.coerce.number().int().min(1).max(31).optional(),
+  birthMonth: z.coerce.number().int().min(1).max(12).optional(),
+  birthYear: z.coerce.number().int().min(1200).max(1500).optional(),
+  cityId: z.coerce.number().int().nullable().optional(),
+};
+
 export const updateUserSchema = z.object({
   params: z.object({ id: z.coerce.number().int() }),
   body: z.object({
     isHost: z.boolean().optional(),
+    isActive: z.boolean().optional(),
+    isSpecialHost: z.boolean().optional(),
     role: z.enum(["USER", "ADMIN"]).optional(),
     verificationStatus: z.enum(["NOT_CONFIRMED", "CHECKING", "CONFIRMED"]).optional(),
+    ...userProfileFields,
+  }),
+});
+
+export const createUserSchema = z.object({
+  body: z.object({
+    phone: z.string().regex(/^09\d{9}$/, "شماره موبایل معتبر نیست"),
+    isHost: z.boolean().optional(),
+    password: z.string().min(6).max(72).optional(),
+    ...userProfileFields,
+  }),
+});
+
+export const setPasswordSchema = z.object({
+  params: z.object({ id: z.coerce.number().int() }),
+  body: z.object({ password: z.string().min(6).max(72) }),
+});
+
+export const yellowCardSchema = z.object({
+  params: z.object({ id: z.coerce.number().int() }),
+  body: z.object({ reason: z.string().min(1).max(1000) }),
+});
+
+export const userListQuerySchema = z.object({
+  query: z.object({
+    page: z.coerce.number().int().min(1).optional(),
+    pageSize: z.coerce.number().int().min(1).max(100).optional(),
+    q: z.string().optional(),
+    tab: z.enum(["all", "hosts", "guests", "admins"]).optional(),
+    isActive: z
+      .enum(["true", "false"])
+      .transform((v) => v === "true")
+      .optional(),
+    verificationStatus: z.enum(["NOT_CONFIRMED", "CHECKING", "CONFIRMED"]).optional(),
+    sort: z.enum(["newest", "oldest", "reservations", "name"]).optional(),
   }),
 });
 

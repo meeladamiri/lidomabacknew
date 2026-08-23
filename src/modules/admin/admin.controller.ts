@@ -29,10 +29,19 @@ export async function dashboardStats(_req: Request, res: Response) {
 }
 
 export async function listUsers(req: Request, res: Response) {
+  const q = req.query as Record<string, unknown>;
   const result = await service.listUsers({
-    page: getOptionalNumber(req.query.page),
-    pageSize: getOptionalNumber(req.query.pageSize),
-    q: getOptionalString(req.query.q),
+    page: getOptionalNumber(q.page),
+    pageSize: getOptionalNumber(q.pageSize),
+    q: getOptionalString(q.q),
+    tab: q.tab as service.UserRoleTab | undefined,
+    isActive: typeof q.isActive === "boolean" ? q.isActive : undefined,
+    verificationStatus: q.verificationStatus as
+      | "NOT_CONFIRMED"
+      | "CHECKING"
+      | "CONFIRMED"
+      | undefined,
+    sort: q.sort as "newest" | "oldest" | "reservations" | "name" | undefined,
   });
 
   return paginated(res, result.items, {
@@ -40,6 +49,31 @@ export async function listUsers(req: Request, res: Response) {
     pageSize: result.pageSize,
     total: result.total,
   });
+}
+
+export async function userTabCounts(_req: Request, res: Response) {
+  return ok(res, await service.userTabCounts());
+}
+
+export async function createUser(req: Request, res: Response) {
+  return ok(res, await service.createUser(req.body), 201);
+}
+
+export async function setUserPassword(req: Request, res: Response) {
+  return ok(res, await service.setUserPassword(Number(req.params.id), req.body.password));
+}
+
+export async function addYellowCard(req: Request, res: Response) {
+  const card = await service.addYellowCard(Number(req.params.id), req.body.reason, req.user?.sub);
+  return ok(res, card, 201);
+}
+
+export async function removeYellowCard(req: Request, res: Response) {
+  return ok(res, await service.removeYellowCard(Number(req.params.id)));
+}
+
+export async function dashboardOverview(_req: Request, res: Response) {
+  return ok(res, await service.getDashboardOverview());
 }
 
 export async function getUser(req: Request, res: Response) {

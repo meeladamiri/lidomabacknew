@@ -6,6 +6,7 @@ import {
 import { prisma } from "@/lib/prisma";
 import { AppError } from "@/lib/errors";
 import { parsePagination } from "@/utils/pagination";
+import bcrypt from "bcryptjs";
 import { RESERVATION_INCLUDE, releaseCalendarDays } from "@/modules/reservations/reservations.service";
 import * as residencesService from "@/modules/residences/residences.service";
 
@@ -41,6 +42,93 @@ reservationsByState: Object.fromEntries(
   };
 }
 
+// Richer dashboard payload: headline tiles, a 12-month trend series for the
+// chart, and the latest activity lists.
+export async function getDashboardOverview() {
+  const now = new Date();
+  const monthsBack = 11;
+  const since = new Date(now.getFullYear(), now.getMonth() - monthsBack, 1);
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const startOfPrevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+
+  const [
+    base,
+    newUsersThisMonth,
+    newUsersPrevMonth,
+    reservationsThisMonth,
+    reservationsPrevMonth,
+    revenueThisMonth,
+    pendingResidences,
+    pendingReservations,
+    trendRows,
+    recentUsers,
+    recentReservations,
+  ] = await Promise.all([
+    getDashboardStats(),
+    prisma.user.count({ where: { createdAt: { gte: startOfMonth } } }),
+    prisma.user.count({ where: { createdAt: { gte: startOfPrevMonth, lt: startOfMonth } } }),
+    prisma.reservation.count({ where: { createdAt: { gte: startOfMonth } } }),
+    prisma.reservation.count({ where: { createdAt: { gte: startOfPrevMonth, lt: startOfMonth } } }),
+    prisma.reservation.aggregate({
+      where: { state: "DONE", createdAt: { gte: startOfMonth } },
+      _sum: { totalAmount: true },
+    }),
+    prisma.residence.count({ where: { state: "PENDING" } }),
+    prisma.reservation.count({ where: { state: "HOST_APPROVAL" } }),
+    // one row per month: reservation count + revenue (raw SQL — Prisma has no
+    // date_trunc grouping)
+    // NB: Reservation.createdAt has no @map, so the column is camelCase and
+    // must stay quoted exactly as "createdAt".
+    prisma.$queryRaw<{ month: Date; reservations: bigint; revenue: number | null }[]>`
+      SELECT date_trunc('month', "createdAt") AS month,
+             COUNT(*) AS reservations,
+             SUM("total_amount") FILTER (WHERE state = 'DONE') AS revenue
+      FROM reservations
+      WHERE "createdAt" >= ${since}
+      GROUP BY 1 ORDER BY 1
+    `,
+    prisma.user.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 6,
+      select: { id: true, name: true, phone: true, avatarUrl: true, isHost: true, createdAt: true },
+    }),
+    prisma.reservation.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 6,
+      select: {
+        id: true,
+        reference: true,
+        state: true,
+        totalAmount: true,
+        createdAt: true,
+        guest: { select: { name: true, phone: true } },
+        residence: { select: { name: true } },
+      },
+    }),
+  ]);
+
+  const pct = (cur: number, prev: number) =>
+    prev === 0 ? (cur > 0 ? 100 : 0) : Math.round(((cur - prev) / prev) * 100);
+
+  return {
+    ...base,
+    newUsersThisMonth,
+    newUsersChangePct: pct(newUsersThisMonth, newUsersPrevMonth),
+    reservationsThisMonth,
+    reservationsChangePct: pct(reservationsThisMonth, reservationsPrevMonth),
+    revenueThisMonth: revenueThisMonth._sum.totalAmount ?? 0,
+    pendingResidences,
+    pendingReservations,
+    trend: trendRows.map((r) => ({
+      month: r.month.toISOString().slice(0, 7),
+      reservations: Number(r.reservations),
+      revenue: Number(r.revenue ?? 0),
+    })),
+    recentUsers,
+    recentReservations,
+  };
+}
+
 // Every User scalar field except passwordHash — never let it leave this module.
 const USER_SELECT_BASE = {
   id: true,
@@ -64,22 +152,63 @@ const USER_SELECT_BASE = {
   description: true,
   verificationStatus: true,
   isHost: true,
+  isActive: true,
+  isSpecialHost: true,
   role: true,
   createdAt: true,
   updatedAt: true,
 } as const;
 
-export async function listUsers(params: { page?: number; pageSize?: number; q?: string }) {
+// The admin user list's tab filter ("همه کاربران / میزبان‌ها / مهمان‌ها").
+export type UserRoleTab = "all" | "hosts" | "guests" | "admins";
+
+function userTabWhere(tab: UserRoleTab | undefined): Prisma.UserWhereInput {
+  switch (tab) {
+    case "hosts":
+      return { isHost: true };
+    case "guests":
+      return { isHost: false, role: "USER" };
+    case "admins":
+      return { role: "ADMIN" };
+    default:
+      return {};
+  }
+}
+
+export async function listUsers(params: {
+  page?: number;
+  pageSize?: number;
+  q?: string;
+  tab?: UserRoleTab;
+  isActive?: boolean;
+  verificationStatus?: "NOT_CONFIRMED" | "CHECKING" | "CONFIRMED";
+  sort?: "newest" | "oldest" | "reservations" | "name";
+}) {
   const { page, pageSize, skip, take } = parsePagination(params);
-  const where: Prisma.UserWhereInput = params.q
-    ? {
-        OR: [
-          { phone: { contains: params.q } },
-          { name: { contains: params.q, mode: "insensitive" } },
-          { email: { contains: params.q, mode: "insensitive" } },
-        ],
-      }
-    : {};
+  const where: Prisma.UserWhereInput = {
+    ...userTabWhere(params.tab),
+    ...(params.isActive !== undefined ? { isActive: params.isActive } : {}),
+    ...(params.verificationStatus ? { verificationStatus: params.verificationStatus } : {}),
+    ...(params.q
+      ? {
+          OR: [
+            { phone: { contains: params.q } },
+            { name: { contains: params.q, mode: "insensitive" } },
+            { email: { contains: params.q, mode: "insensitive" } },
+            { nationalCode: { contains: params.q } },
+          ],
+        }
+      : {}),
+  };
+
+  const orderBy: Prisma.UserOrderByWithRelationInput =
+    params.sort === "oldest"
+      ? { createdAt: "asc" }
+      : params.sort === "name"
+        ? { name: "asc" }
+        : params.sort === "reservations"
+          ? { reservationsAsGuest: { _count: "desc" } }
+          : { createdAt: "desc" };
 
   const [total, items] = await Promise.all([
     prisma.user.count({ where }),
@@ -87,32 +216,171 @@ export async function listUsers(params: { page?: number; pageSize?: number; q?: 
       where,
       skip,
       take,
-      orderBy: { createdAt: "desc" },
-      select: USER_SELECT_BASE,
+      orderBy,
+      select: {
+        ...USER_SELECT_BASE,
+        // list-card metrics (successful reservations / last reservation)
+        _count: { select: { reservationsAsGuest: true, residences: true, yellowCards: true } },
+        reservationsAsGuest: {
+          select: { createdAt: true },
+          orderBy: { createdAt: "desc" },
+          take: 1,
+        },
+      },
     }),
   ]);
 
-  return { total, page, pageSize, items };
+  return {
+    total,
+    page,
+    pageSize,
+    items: items.map(({ _count, reservationsAsGuest, ...u }) => ({
+      ...u,
+      reservationsCount: _count.reservationsAsGuest,
+      residencesCount: _count.residences,
+      yellowCardsCount: _count.yellowCards,
+      lastReservationAt: reservationsAsGuest[0]?.createdAt ?? null,
+    })),
+  };
+}
+
+// Counts for the user-list tabs (rendered as pills above the table).
+export async function userTabCounts() {
+  const [all, hosts, guests, admins] = await Promise.all([
+    prisma.user.count(),
+    prisma.user.count({ where: { isHost: true } }),
+    prisma.user.count({ where: { isHost: false, role: "USER" } }),
+    prisma.user.count({ where: { role: "ADMIN" } }),
+  ]);
+  return { all, hosts, guests, admins };
 }
 
 export async function getUser(id: number) {
-  return prisma.user.findUniqueOrThrow({
+  const user = await prisma.user.findUniqueOrThrow({
     where: { id },
     select: {
       ...USER_SELECT_BASE,
       city: { include: { province: true } },
       bankAccount: true,
-      residences: { select: { id: true, name: true, state: true } },
+      residences: {
+        select: {
+          id: true,
+          reference: true,
+          name: true,
+          state: true,
+          averageRating: true,
+          weekPrice: true,
+          images: { take: 1, orderBy: { sortOrder: "asc" } },
+          city: { select: { name: true } },
+        },
+        orderBy: { createdAt: "desc" },
+      },
+      yellowCards: { orderBy: { createdAt: "desc" } },
       _count: { select: { reservationsAsGuest: true, reservationsAsHost: true } },
     },
   });
+
+  // Header metrics for the detail page: successful stays, money moved, and
+  // the latest activity timestamp.
+  const [guestDone, hostDone, guestSpend, hostIncome, lastReservation] = await Promise.all([
+    prisma.reservation.count({ where: { guestId: id, state: "DONE" } }),
+    prisma.reservation.count({ where: { hostId: id, state: "DONE" } }),
+    prisma.reservation.aggregate({
+      where: { guestId: id, state: { in: ["SECOND_PAYMENT", "DONE"] } },
+      _sum: { totalAmount: true },
+    }),
+    prisma.reservation.aggregate({
+      where: { hostId: id, state: { in: ["SECOND_PAYMENT", "DONE"] } },
+      _sum: { totalAmount: true },
+    }),
+    prisma.reservation.findFirst({
+      where: { OR: [{ guestId: id }, { hostId: id }] },
+      orderBy: { createdAt: "desc" },
+      select: { createdAt: true },
+    }),
+  ]);
+
+  return {
+    ...user,
+    stats: {
+      reservationsAsGuest: user._count.reservationsAsGuest,
+      reservationsAsHost: user._count.reservationsAsHost,
+      successfulAsGuest: guestDone,
+      successfulAsHost: hostDone,
+      totalSpent: guestSpend._sum.totalAmount ?? 0,
+      totalIncome: hostIncome._sum.totalAmount ?? 0,
+      lastActivityAt: lastReservation?.createdAt ?? null,
+    },
+  };
+}
+
+// Admin-created user (the "ایجاد کاربر جدید" form). Password optional —
+// without one the user signs in via OTP like any migrated user.
+export async function createUser(data: {
+  phone: string;
+  name?: string;
+  email?: string;
+  nationalCode?: string;
+  contactPhone?: string;
+  birthDay?: number;
+  birthMonth?: number;
+  birthYear?: number;
+  address?: string;
+  isHost?: boolean;
+  password?: string;
+}) {
+  const existing = await prisma.user.findUnique({ where: { phone: data.phone } });
+  if (existing) throw AppError.badRequest("کاربری با این شماره موبایل از قبل وجود دارد");
+
+  const { password, ...fields } = data;
+  return prisma.user.create({
+    data: {
+      ...fields,
+      ...(password ? { passwordHash: await bcrypt.hash(password, 10) } : {}),
+    },
+    select: USER_SELECT_BASE,
+  });
+}
+
+export async function setUserPassword(id: number, password: string) {
+  await prisma.user.update({ where: { id }, data: { passwordHash: await bcrypt.hash(password, 10) } });
+  return { success: true };
+}
+
+export async function addYellowCard(userId: number, reason: string, adminId?: number) {
+  return prisma.userYellowCard.create({ data: { userId, reason, adminId } });
+}
+
+export async function removeYellowCard(id: number) {
+  await prisma.userYellowCard.delete({ where: { id } });
+  return { success: true };
 }
 
 export async function updateUser(
   id: number,
-  data: { isHost?: boolean; role?: "USER" | "ADMIN"; verificationStatus?: "NOT_CONFIRMED" | "CHECKING" | "CONFIRMED" }
+  data: {
+    isHost?: boolean;
+    isActive?: boolean;
+    isSpecialHost?: boolean;
+    role?: "USER" | "ADMIN";
+    verificationStatus?: "NOT_CONFIRMED" | "CHECKING" | "CONFIRMED";
+    // profile fields, editable from the admin detail page
+    name?: string;
+    email?: string;
+    nationalCode?: string;
+    contactPhone?: string;
+    emergencyPhone?: string;
+    address?: string;
+    job?: string;
+    education?: string;
+    description?: string;
+    birthDay?: number;
+    birthMonth?: number;
+    birthYear?: number;
+    cityId?: number | null;
+  }
 ) {
-  return prisma.user.update({ where: { id }, data });
+  return prisma.user.update({ where: { id }, data, select: USER_SELECT_BASE });
 }
 
 // ---------- Residence custom filters ----------

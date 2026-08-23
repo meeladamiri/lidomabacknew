@@ -147,6 +147,7 @@ model City {
   provinceId Int?        @map("province_id")
   province   Province?   @relation(fields: [provinceId], references: [id])
   residences Residence[]
+  extraResidences ResidenceCity[]
   users      User[]
   createdAt  DateTime    @default(now())
   updatedAt  DateTime    @updatedAt
@@ -331,6 +332,12 @@ model Residence {
   city         City?   @relation(fields: [cityId], references: [id])
   neighborhood String?
   address      String?
+  // "آدرس در فاکتور" — the full postal address printed on invoices; the
+  // public page shows the coarser `address` instead.
+  invoiceAddress String? @map("invoice_address")
+  // "نام پیشنهادی میزبان" — what the host proposed; `name` is what actually
+  // renders publicly after admin review.
+  hostSuggestedName String? @map("host_suggested_name")
   latitude     Float?
   longitude    Float?
   floor        String?
@@ -393,6 +400,8 @@ model Residence {
   importance Int @default(0)
 
   images       ResidenceImage[]
+  distances    ResidenceDistance[]
+  extraCities  ResidenceCity[]
   rooms        Room[]
   amenities    ResidenceAmenity[]
   rules        ResidenceRule[]
@@ -408,6 +417,35 @@ model Residence {
   @@index([cityId])
   @@index([state, published])
   @@map("residences")
+}
+
+// "فاصله تا جاذبه‌های گردشگری" — distance/ETA from a residence to a nearby
+// landmark (legacy Odoo x_residence_place_distance + x_attractions).
+model ResidenceDistance {
+  id          Int       @id @default(autoincrement())
+  residenceId Int       @map("residence_id")
+  residence   Residence @relation(fields: [residenceId], references: [id], onDelete: Cascade)
+  placeName   String    @map("place_name")
+  distance    String? // free text, e.g. "۷ کیلومتر"
+  eta         String? // free text, e.g. "۱ ساعت و ۲۹ دقیقه"
+  sortOrder   Int       @default(0) @map("sort_order")
+
+  @@index([residenceId])
+  @@map("residence_distances")
+}
+
+// "دیگر شهرهای اقامتگاه" — extra cities a residence is listed under, beyond
+// its primary `cityId` (legacy product_public_category_product_template_rel).
+model ResidenceCity {
+  id          Int       @id @default(autoincrement())
+  residenceId Int       @map("residence_id")
+  residence   Residence @relation(fields: [residenceId], references: [id], onDelete: Cascade)
+  cityId      Int       @map("city_id")
+  city        City      @relation(fields: [cityId], references: [id], onDelete: Cascade)
+
+  @@unique([residenceId, cityId])
+  @@index([cityId])
+  @@map("residence_cities")
 }
 
 model ResidenceImage {

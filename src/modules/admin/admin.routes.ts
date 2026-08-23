@@ -11,6 +11,8 @@ import {
   bulkIdsSchema,
   bulkStateSchema,
   bulkTypeSchema,
+  distancesSchema,
+  extraCitiesSchema,
   createUserSchema,
   setPasswordSchema,
   yellowCardSchema,
@@ -69,6 +71,8 @@ router.patch(
   asyncHandler(controller.setResidenceState)
 );
 router.patch("/residences/:id", validate(updateSpecsSchema), asyncHandler(controller.updateResidenceSpecs));
+router.put("/residences/:id/distances", validate(distancesSchema), asyncHandler(controller.setResidenceDistances));
+router.put("/residences/:id/extra-cities", validate(extraCitiesSchema), asyncHandler(controller.setResidenceExtraCities));
 router.patch(
   "/residences/:id/amenities",
   validate(updateAmenitiesSchema),

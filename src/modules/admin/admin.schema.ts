@@ -106,6 +106,26 @@ export const bulkTypeSchema = z.object({
   }),
 });
 
+export const distancesSchema = z.object({
+  params: z.object({ id: z.coerce.number().int() }),
+  body: z.object({
+    distances: z
+      .array(
+        z.object({
+          placeName: z.string().min(1).max(200),
+          distance: z.string().max(100).optional(),
+          eta: z.string().max(100).optional(),
+        })
+      )
+      .max(50),
+  }),
+});
+
+export const extraCitiesSchema = z.object({
+  params: z.object({ id: z.coerce.number().int() }),
+  body: z.object({ cityIds: z.array(z.coerce.number().int()).max(50) }),
+});
+
 export const userListQuerySchema = z.object({
   query: z.object({
     page: z.coerce.number().int().min(1).optional(),

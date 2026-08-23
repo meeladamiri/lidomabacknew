@@ -21,12 +21,21 @@ export const updateSpecsSchema = z.object({
   params: z.object({ id: z.coerce.number().int() }),
   body: z.object({
     name: z.string().min(2).max(200).optional(),
+    name2: z.string().max(200).optional(),
+    // "نام پیشنهادی میزبان" — kept alongside the published `name`
+    hostSuggestedName: z.string().max(200).optional(),
     description: z.string().max(5000).optional(),
     region: z.string().max(200).optional(),
     rentType: z.string().max(200).optional(),
     address: z.string().max(500).optional(),
+    // "آدرس در فاکتور" — full postal address, invoices only
+    invoiceAddress: z.string().max(500).optional(),
     neighborhood: z.string().max(200).optional(),
     cityId: z.number().int().optional(),
+    // "نوع ملک" — admin can retype from the detail page
+    type: z.enum(RESIDENCE_TYPES).optional(),
+    // "اهمیت اقامتگاه" — manual search-ranking weight
+    importance: z.number().int().min(0).optional(),
     floor: z.string().optional(),
     foundationArea: z.number().optional(),
     totalArea: z.number().optional(),

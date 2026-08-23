@@ -161,6 +161,14 @@ export async function getResidence(req: Request, res: Response) {
   return ok(res, data);
 }
 
+export async function setResidenceDistances(req: Request, res: Response) {
+  return ok(res, await service.setResidenceDistances(Number(req.params.id), req.body.distances));
+}
+
+export async function setResidenceExtraCities(req: Request, res: Response) {
+  return ok(res, await service.setResidenceExtraCities(Number(req.params.id), req.body.cityIds));
+}
+
 export async function setResidenceState(req: Request, res: Response) {
   const data = await service.setResidenceState(
     Number(req.params.id),

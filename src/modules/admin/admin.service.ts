@@ -693,16 +693,71 @@ export async function exportResidencesCsv(ids: number[]) {
 }
 
 export async function getResidence(id: number) {
-  return prisma.residence.findUniqueOrThrow({
+  const residence = await prisma.residence.findUniqueOrThrow({
     where: { id },
     include: {
-      host: { select: { id: true, name: true, phone: true } },
+      host: {
+        select: {
+          id: true,
+          name: true,
+          phone: true,
+          avatarUrl: true,
+          verificationStatus: true,
+          isSpecialHost: true,
+          _count: { select: { residences: true } },
+        },
+      },
       city: { include: { province: true } },
       images: { orderBy: { sortOrder: "asc" } },
+      distances: { orderBy: { sortOrder: "asc" } },
+      extraCities: { include: { city: { select: { id: true, name: true } } } },
       rooms: true,
-      amenities: { include: { amenity: true } },
+      amenities: { include: { amenity: { include: { features: true } } } },
       rules: { include: { rule: true } },
+      _count: { select: { reservations: true, reviews: true } },
     },
+  });
+
+  const { _count, host, ...rest } = residence;
+  return {
+    ...rest,
+    // legacy-URL contract: the public "کد اقامتگاه" is the Odoo id
+    publicId: publicResidenceId(residence),
+    host: host && {
+      ...host,
+      residencesCount: host._count.residences,
+    },
+    reservationsCount: _count.reservations,
+    reviewsCount2: _count.reviews,
+  };
+}
+
+/** Replaces the residence-detail "فاصله تا جاذبه‌های گردشگری" list. */
+export async function setResidenceDistances(
+  id: number,
+  distances: { placeName: string; distance?: string; eta?: string }[]
+) {
+  await prisma.residenceDistance.deleteMany({ where: { residenceId: id } });
+  if (distances.length) {
+    await prisma.residenceDistance.createMany({
+      data: distances.map((d, i) => ({ residenceId: id, ...d, sortOrder: i })),
+    });
+  }
+  return prisma.residenceDistance.findMany({ where: { residenceId: id }, orderBy: { sortOrder: "asc" } });
+}
+
+/** Replaces "دیگر شهرهای اقامتگاه". */
+export async function setResidenceExtraCities(id: number, cityIds: number[]) {
+  await prisma.residenceCity.deleteMany({ where: { residenceId: id } });
+  if (cityIds.length) {
+    await prisma.residenceCity.createMany({
+      data: cityIds.map((cityId) => ({ residenceId: id, cityId })),
+      skipDuplicates: true,
+    });
+  }
+  return prisma.residenceCity.findMany({
+    where: { residenceId: id },
+    include: { city: { select: { id: true, name: true } } },
   });
 }
 

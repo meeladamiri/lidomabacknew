@@ -79,7 +79,7 @@ export const residenceListQuerySchema = z.object({
     pageSize: z.coerce.number().int().min(1).max(100).optional(),
     q: z.string().optional(),
     state: z.string().optional(),
-    tab: z.enum(["all", "suit", "boomgardi", "pending"]).optional(),
+    tab: z.enum(["all", "suit", "boomgardi", "hotel", "pending"]).optional(),
     sort: z
       .enum(["newest", "oldest", "price_asc", "price_desc", "importance", "rating"])
       .optional(),

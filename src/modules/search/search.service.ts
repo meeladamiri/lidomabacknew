@@ -1,6 +1,8 @@
 import { Prisma } from "../../generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { publicResidenceId } from "@/lib/publicId";
+import { RESIDENCE_TYPE_SLUG } from "@/lib/residenceType";
+import type { ResidenceType } from "@/generated/prisma/client";
 
 export async function getPopularDestinations() {
   // Cities ranked by number of published residences.
@@ -104,7 +106,7 @@ export async function searchCitiesAndProvinces(query: string) {
       id: r.id,
       name: r.name,
       reference: r.reference,
-      displayType: r.type === "BOOMGARDI" ? "boomgardi" : "suit",
+      displayType: RESIDENCE_TYPE_SLUG[r.type],
     })),
   };
 }
@@ -160,7 +162,7 @@ export interface ResidenceSearchFilters {
   roomsCount?: number;
   minPrice?: number;
   maxPrice?: number;
-  type?: "BOOMGARDI" | "SUIT";
+  type?: ResidenceType;
   mapBounds?: { minLat: number; maxLat: number; minLng: number; maxLng: number };
   page?: number;
   pageSize?: number;

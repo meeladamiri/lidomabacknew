@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { RESIDENCE_TYPES } from "@/lib/residenceType";
 
 export const residenceIdParamSchema = z.object({
   params: z.object({ id: z.coerce.number().int() }),
@@ -10,7 +11,7 @@ export const hostIdParamSchema = z.object({
 
 export const createResidenceSchema = z.object({
   body: z.object({
-    type: z.enum(["BOOMGARDI", "SUIT"]),
+    type: z.enum(RESIDENCE_TYPES),
     name: z.string().min(1).max(200).optional(),
     cityId: z.number().int().optional(),
   }),

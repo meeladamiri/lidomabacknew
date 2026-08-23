@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { RESIDENCE_TYPES } from "@/lib/residenceType";
 
 export const citySearchSchema = z.object({
   query: z.object({
@@ -38,7 +39,7 @@ export const residenceSearchSchema = z.object({
     roomsCount: z.number().int().min(1).optional(),
     minPrice: z.number().min(0).optional(),
     maxPrice: z.number().min(0).optional(),
-    type: z.enum(["BOOMGARDI", "SUIT"]).optional(),
+    type: z.enum(RESIDENCE_TYPES).optional(),
     features: z.array(z.string().max(50)).max(20).optional(),
     mapBounds: z
       .object({

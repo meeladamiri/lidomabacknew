@@ -1,4 +1,4 @@
-import { Prisma } from "@/generated/prisma/client";
+import { Prisma, type ResidenceType } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { AppError } from "@/lib/errors";
 import { generateReference } from "@/utils/reference";
@@ -239,7 +239,7 @@ async function assertOwnership(hostId: number, residenceId: number) {
 
 export async function createResidence(
   hostId: number,
-  data: { type: "BOOMGARDI" | "SUIT"; name?: string; cityId?: number }
+  data: { type: ResidenceType; name?: string; cityId?: number }
 ) {
   return prisma.residence.create({
     data: {

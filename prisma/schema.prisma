@@ -27,9 +27,14 @@ enum VerificationStatus {
   CONFIRMED
 }
 
+// "نوع ملک" — the residence's own category, independent of the city
+// taxonomy. Mirrors legacy Odoo product_template.x_display_type
+// (suit | boomgardi | hotel); Odoo's rare "both" collapses to SUIT, which
+// is how the old site's tag domains already treated it.
 enum ResidenceType {
   BOOMGARDI // eco-lodge / rural stay
-  SUIT // apartment / suite
+  SUIT // villa / apartment / suite
+  HOTEL // hotel & hotel-apartment
 }
 
 enum ResidenceState {

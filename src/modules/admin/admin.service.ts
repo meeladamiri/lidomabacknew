@@ -8,6 +8,7 @@ import { AppError } from "@/lib/errors";
 import { parsePagination } from "@/utils/pagination";
 import bcrypt from "bcryptjs";
 import { publicResidenceId } from "@/lib/publicId";
+import { RESIDENCE_TYPES, RESIDENCE_TYPE_LABEL } from "@/lib/residenceType";
 import { generateReference } from "@/utils/reference";
 import { RESERVATION_INCLUDE, releaseCalendarDays } from "@/modules/reservations/reservations.service";
 import * as residencesService from "@/modules/residences/residences.service";
@@ -398,7 +399,7 @@ export const RESIDENCE_FILTER_FIELDS: Record<
 > = {
   name: { label: "نام", type: "string" },
   reference: { label: "کد", type: "string" },
-  type: { label: "نوع", type: "enum", enumValues: ["BOOMGARDI", "SUIT"] },
+  type: { label: "نوع ملک", type: "enum", enumValues: [...RESIDENCE_TYPES] },
   state: {
     label: "وضعیت",
     type: "enum",
@@ -472,7 +473,7 @@ function buildResidenceFilterWhere(filters: FilterCondition[]): Prisma.Residence
 
 // Residence list tabs ("همه اقامتگاه‌ها / ویلا و سوئیت / بوم‌گردی‌ها /
 // در انتظار تایید").
-export type ResidenceTab = "all" | "suit" | "boomgardi" | "pending";
+export type ResidenceTab = "all" | "suit" | "boomgardi" | "hotel" | "pending";
 
 function residenceTabWhere(tab: ResidenceTab | undefined): Prisma.ResidenceWhereInput {
   switch (tab) {
@@ -480,6 +481,8 @@ function residenceTabWhere(tab: ResidenceTab | undefined): Prisma.ResidenceWhere
       return { type: "SUIT" };
     case "boomgardi":
       return { type: "BOOMGARDI" };
+    case "hotel":
+      return { type: "HOTEL" };
     case "pending":
       return { state: "PENDING" };
     default:
@@ -557,13 +560,14 @@ export async function listResidences(params: {
 }
 
 export async function residenceTabCounts() {
-  const [all, suit, boomgardi, pending] = await Promise.all([
+  const [all, suit, boomgardi, hotel, pending] = await Promise.all([
     prisma.residence.count(),
     prisma.residence.count({ where: { type: "SUIT" } }),
     prisma.residence.count({ where: { type: "BOOMGARDI" } }),
+    prisma.residence.count({ where: { type: "HOTEL" } }),
     prisma.residence.count({ where: { state: "PENDING" } }),
   ]);
-  return { all, suit, boomgardi, pending };
+  return { all, suit, boomgardi, hotel, pending };
 }
 
 // ---------- Bulk actions (list-view multi-select) ----------
@@ -664,7 +668,7 @@ export async function exportResidencesCsv(ids: number[]) {
     [
       publicResidenceId(r),
       r.name,
-      r.type === "BOOMGARDI" ? "بوم‌گردی" : "ویلا/سوئیت",
+      RESIDENCE_TYPE_LABEL[r.type],
       r.state,
       r.city?.province?.name ?? "",
       r.city?.name ?? "",

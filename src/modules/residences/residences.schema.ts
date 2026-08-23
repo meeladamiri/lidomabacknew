@@ -92,6 +92,8 @@ export const updatePricingSchema = z.object({
     peakPrice: z.number().min(0).optional(),
     extraPrice: z.number().min(0).optional(),
     extraGuestsPrice: z.number().min(0).optional(),
+    // "نرخ نفر اضافه ( ایام پیک )"
+    extraGuestsPeakPrice: z.number().min(0).optional(),
     weeklyDiscount: z.number().min(0).max(100).optional(),
     monthlyDiscount: z.number().min(0).max(100).optional(),
   }),

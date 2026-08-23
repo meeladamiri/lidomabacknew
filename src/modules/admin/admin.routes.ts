@@ -22,6 +22,7 @@ import {
   updateUserSchema,
   upsertAmenitySchema,
   upsertCitySchema,
+  upsertPeakDaySchema,
   upsertProvinceSchema,
   upsertRuleSchema,
 } from "./admin.schema";
@@ -122,6 +123,7 @@ router.delete("/filter-presets/:id", validate(idParamSchema), asyncHandler(contr
 
 router.use("/amenities", buildCatalogRouter(service.amenities, upsertAmenitySchema));
 router.use("/rules", buildCatalogRouter(service.rules, upsertRuleSchema));
+router.use("/peak-days", buildCatalogRouter(service.peakDays, upsertPeakDaySchema));
 router.use("/cities", buildCatalogRouter(service.cities, upsertCitySchema));
 router.use("/provinces", buildCatalogRouter(service.provinces, upsertProvinceSchema));
 

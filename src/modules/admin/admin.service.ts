@@ -1004,6 +1004,39 @@ export const rules = {
   remove: (id: number) => prisma.rule.delete({ where: { id } }),
 };
 
+// "روزهای پیک" — global peak-date ranges used by pricing.
+export const peakDays = {
+  list: () =>
+    prisma.peakDay.findMany({
+      include: { cities: { include: { city: { select: { id: true, name: true } } } } },
+      orderBy: { startDate: "desc" },
+    }),
+  create: ({ cityIds, ...data }: any) =>
+    prisma.peakDay.create({
+      data: {
+        ...data,
+        startDate: new Date(data.startDate),
+        endDate: new Date(data.endDate),
+        ...(cityIds?.length ? { cities: { create: cityIds.map((cityId: number) => ({ cityId })) } } : {}),
+      },
+      include: { cities: { include: { city: { select: { id: true, name: true } } } } },
+    }),
+  update: async (id: number, { cityIds, ...data }: any) => {
+    if (cityIds) await prisma.peakDayCity.deleteMany({ where: { peakDayId: id } });
+    return prisma.peakDay.update({
+      where: { id },
+      data: {
+        ...data,
+        ...(data.startDate ? { startDate: new Date(data.startDate) } : {}),
+        ...(data.endDate ? { endDate: new Date(data.endDate) } : {}),
+        ...(cityIds?.length ? { cities: { create: cityIds.map((cityId: number) => ({ cityId })) } } : {}),
+      },
+      include: { cities: { include: { city: { select: { id: true, name: true } } } } },
+    });
+  },
+  remove: (id: number) => prisma.peakDay.delete({ where: { id } }),
+};
+
 export const cities = {
   list: () => prisma.city.findMany({ include: { province: true } }),
   create: (data: Prisma.CityCreateInput) => prisma.city.create({ data }),

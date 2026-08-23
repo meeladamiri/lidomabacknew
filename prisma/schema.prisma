@@ -148,12 +148,42 @@ model City {
   province   Province?   @relation(fields: [provinceId], references: [id])
   residences Residence[]
   extraResidences ResidenceCity[]
+  peakDays        PeakDayCity[]
   users      User[]
   createdAt  DateTime    @default(now())
   updatedAt  DateTime    @updatedAt
 
   @@index([provinceId])
   @@map("cities")
+}
+
+// "روزهای پیک" — global date ranges that switch pricing to the peak rate
+// (legacy Odoo x_peak_days). Managed in admin settings; ranges apply to every
+// residence unless scoped to specific cities.
+model PeakDay {
+  id        Int      @id @default(autoincrement())
+  name      String
+  startDate DateTime @map("start_date")
+  endDate   DateTime @map("end_date")
+  isActive  Boolean  @default(true) @map("is_active")
+  cities    PeakDayCity[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([startDate, endDate])
+  @@map("peak_days")
+}
+
+// Optional city scoping — no rows means the peak range is nationwide.
+model PeakDayCity {
+  id        Int     @id @default(autoincrement())
+  peakDayId Int     @map("peak_day_id")
+  peakDay   PeakDay @relation(fields: [peakDayId], references: [id], onDelete: Cascade)
+  cityId    Int     @map("city_id")
+  city      City    @relation(fields: [cityId], references: [id], onDelete: Cascade)
+
+  @@unique([peakDayId, cityId])
+  @@map("peak_day_cities")
 }
 
 // ---------- Users ----------
@@ -375,6 +405,8 @@ model Residence {
   peakPrice          Float?  @map("peak_price")
   extraPrice         Float?  @map("extra_price")
   extraGuestsPrice    Float? @map("extra_guests_price")
+  // "نرخ نفر اضافه ( ایام پیک )" — the per-extra-guest rate during peak days
+  extraGuestsPeakPrice Float? @map("extra_guests_peak_price")
   weeklyDiscount     Float?  @map("weekly_discount")
   monthlyDiscount    Float?  @map("monthly_discount")
 

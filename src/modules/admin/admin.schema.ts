@@ -188,6 +188,17 @@ export const upsertRuleSchema = z.object({
   }),
 });
 
+export const upsertPeakDaySchema = z.object({
+  body: z.object({
+    name: z.string().min(1).max(200),
+    startDate: z.string(),
+    endDate: z.string(),
+    isActive: z.boolean().optional(),
+    // empty/absent = nationwide
+    cityIds: z.array(z.coerce.number().int()).optional(),
+  }),
+});
+
 export const upsertCitySchema = z.object({
   body: z.object({
     name: z.string().min(1),

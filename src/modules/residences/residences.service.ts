@@ -141,8 +141,17 @@ export async function getHostProfile(hostId: number) {
   // reservation history yet, rather than implying a bad track record.
   const confirmPercent = totalReservations > 0 ? (confirmedReservations / totalReservations) * 100 : 100;
 
+  // The host's "home" city for SEO copy ("میزبان لیدوما در شیراز") — the
+  // most frequent city among their published residences.
+  const cityCounts = new Map<string, number>();
+  for (const r of residences) {
+    const c = r.city?.name;
+    if (c) cityCounts.set(c, (cityCounts.get(c) ?? 0) + 1);
+  }
+  const cityName = [...cityCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+
   return {
-    host: { ...host, confirmPercent },
+    host: { ...host, confirmPercent, cityName },
     residences: residences.map(toCard),
     reviews,
   };

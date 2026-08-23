@@ -480,14 +480,19 @@ export async function searchResidences(filters: ResidenceSearchFilters) {
     };
   }
 
-  const orderBy: Prisma.ResidenceOrderByWithRelationInput =
+  const orderBy: Prisma.ResidenceOrderByWithRelationInput[] =
     filters.order === "price_asc"
-      ? { weekPrice: "asc" }
+      ? [{ weekPrice: "asc" }]
       : filters.order === "price_desc"
-        ? { weekPrice: "desc" }
+        ? [{ weekPrice: "desc" }]
         : filters.order === "rating_desc"
-          ? { averageRating: "desc" }
-          : { createdAt: "desc" };
+          ? [{ averageRating: "desc" }]
+          : filters.order === "newest"
+            ? [{ createdAt: "desc" }]
+            : // default "پیشنهاد لیدوما": the ops team's manual ranking weight
+              // ("اهمیت اقامتگاه" — Residence.importance, migrated from Odoo's
+              // x_sequence) first, then rating as the tie-breaker.
+              [{ importance: "desc" }, { averageRating: "desc" }, { createdAt: "desc" }];
 
   const [total, residences] = await Promise.all([
     prisma.residence.count({ where }),

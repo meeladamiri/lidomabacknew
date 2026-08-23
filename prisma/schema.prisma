@@ -363,6 +363,11 @@ model Residence {
   averageRating Float @default(0) @map("average_rating")
   reviewsCount  Int   @default(0) @map("reviews_count")
 
+  // "اهمیت اقامتگاه" — manual ranking weight set by the ops team (legacy
+  // Odoo product_template.x_sequence, values up to 2e9). Higher = shown
+  // earlier in the default ("پیشنهاد لیدوما") search ordering.
+  importance Int @default(0)
+
   images       ResidenceImage[]
   rooms        Room[]
   amenities    ResidenceAmenity[]

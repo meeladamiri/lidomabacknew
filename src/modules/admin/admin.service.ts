@@ -145,6 +145,7 @@ export const RESIDENCE_FILTER_FIELDS: Record<
   peakPrice: { label: "قیمت اوج", type: "number" },
   averageRating: { label: "امتیاز", type: "number" },
   reviewsCount: { label: "تعداد نظرات", type: "number" },
+  importance: { label: "اهمیت اقامتگاه", type: "number" },
   salesCount: { label: "تعداد فروش", type: "number" },
   isFast: { label: "رزرو آنی", type: "boolean" },
   isFull: { label: "تکمیل ظرفیت", type: "boolean" },

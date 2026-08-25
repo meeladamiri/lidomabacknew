@@ -46,10 +46,21 @@ interface TagUrlRow {
   residence_count: number | null;
 }
 
+// Odoo built each tag_url's meta from a template that interpolated the chosen
+// city. For the 17 category-less rows ("تگ مادر") nothing was chosen, so the
+// dropdown's own placeholder was interpolated instead and 15 of them read
+// "اجاره ویلا استخردار در انتخاب کنید | …". Those titles are broken on the live
+// site too. Importing them verbatim would ship the same nonsense as the title
+// of a nationwide page, so they are dropped and the generated template — which
+// simply omits the location — is used instead. An admin can write a real one
+// in the tag-pages screen.
+const PLACEHOLDER = "انتخاب کنید";
+
 function clean(s: string | null): string | null {
   const t = s?.replace(/\s+/g, " ").trim();
   if (!t) return null;
   if (t === "<p><br></p>" || t === "<p></p>") return null;
+  if (t.includes(PLACEHOLDER)) return null;
   return t;
 }
 
@@ -185,6 +196,11 @@ async function main() {
   console.log(`\nUnique (location, tag) pages: ${candidates.length}`);
   console.log(`  active:              ${candidates.filter((c) => c.isActive).length}`);
   console.log(`  with meta title:     ${candidates.filter((c) => c.metaTitle).length}`);
+  console.log(
+    `  meta dropped as placeholder ("${PLACEHOLDER}"): ${
+      rows.filter((r) => (r.website_meta_title ?? "").includes(PLACEHOLDER)).length
+    } source rows`
+  );
   console.log(`  with hand-written body: ${candidates.filter((c) => c.contentHtml).length}`);
   console.log(`  flagged for sitemap: ${candidates.filter((c) => c.showInSitemap).length}`);
   console.log(`  plain location page (no tag):  ${candidates.filter((c) => !c.locationId === false && !c.tagId).length}`);

@@ -260,7 +260,7 @@ export async function getSeoTag(id: number) {
  * instead of a free-text box that would silently never match.
  */
 export async function getTagConditionOptions() {
-  const [amenities, rules, usage] = await Promise.all([
+  const [amenities, rules, usage, storedValues] = await Promise.all([
     prisma.amenity.findMany({
       where: { key: { not: null } },
       select: {
@@ -278,26 +278,43 @@ export async function getTagConditionOptions() {
       orderBy: { name: "asc" },
     }),
     prisma.residenceAmenity.groupBy({ by: ["amenityId"], _count: true }),
+    // The values listings ACTUALLY carry. AmenityFeature.values does not hold
+    // them for the categorical attributes — "نوع اقامتگاه" has no declared
+    // option list, so without this the editor could not offer (or re-select)
+    // "خانه ویلایی", which is exactly what the pool/villa/beach tags match on.
+    prisma.$queryRawUnsafe<{ amenity_id: number; value: string }[]>(
+      `SELECT DISTINCT ra.amenity_id, trim(part) AS value
+         FROM residence_amenities ra,
+              LATERAL unnest(string_to_array(ra.extra_features->>'value', '،')) AS part
+        WHERE ra.extra_features->>'value' IS NOT NULL
+          AND trim(part) <> ''
+          AND trim(part) NOT IN ('دارد', 'ندارد')`
+    ),
   ]);
 
   const usageByAmenity = new Map(usage.map((u) => [u.amenityId, u._count]));
+  const valuesByAmenity = new Map<number, Set<string>>();
+  for (const row of storedValues) {
+    if (!valuesByAmenity.has(row.amenity_id)) valuesByAmenity.set(row.amenity_id, new Set());
+    valuesByAmenity.get(row.amenity_id)!.add(row.value);
+  }
 
   return {
-    amenities: amenities.map((a) => ({
-      id: a.id,
-      key: a.key,
-      name: a.name,
-      category: a.category,
-      usageCount: usageByAmenity.get(a.id) ?? 0,
-      options: [
-        ...new Set(
-          a.features
-            .flatMap((f) => (f.values ?? "").split(","))
-            .map((s) => s.trim())
-            .filter((s) => s && s !== "دارد" && s !== "ندارد")
-        ),
-      ],
-    })),
+    amenities: amenities.map((a) => {
+      const declared = a.features
+        .flatMap((f) => (f.values ?? "").split(","))
+        .map((s) => s.trim())
+        .filter((s) => s && s !== "دارد" && s !== "ندارد");
+      const stored = [...(valuesByAmenity.get(a.id) ?? [])];
+      return {
+        id: a.id,
+        key: a.key,
+        name: a.name,
+        category: a.category,
+        usageCount: usageByAmenity.get(a.id) ?? 0,
+        options: [...new Set([...stored, ...declared])].sort((x, y) => x.localeCompare(y, "fa")),
+      };
+    }),
     rules,
   };
 }

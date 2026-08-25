@@ -17,6 +17,7 @@ import favouritesRoutes from "@/modules/favourites/favourites.routes";
 import { publicCalendarRoutes, hostCalendarRoutes } from "@/modules/calendar/calendar.routes";
 import { guestReservationRoutes, hostReservationRoutes } from "@/modules/reservations/reservations.routes";
 import adminRoutes from "@/modules/admin/admin.routes";
+import seoRoutes from "@/modules/seo/seo.routes";
 
 export function buildApp() {
   const app = express();
@@ -40,6 +41,10 @@ export function buildApp() {
   app.get("/health", (_req, res) => res.json({ status: "ok" }));
 
   // Public
+  // Served from the site root (the front proxies them there) so crawlers find
+  // /sitemap.xml and /robots.txt where they expect.
+  app.use(seoRoutes);
+
   app.use("/api/auth", authRoutes);
   app.use("/api/search", searchRoutes);
   app.use("/api/residences", residencesRoutes);

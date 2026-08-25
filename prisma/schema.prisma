@@ -274,44 +274,44 @@ model UserYellowCard {
 }
 
 model User {
-  id                 Int                 @id @default(autoincrement())
-  phone              String              @unique
-  passwordHash       String?             @map("password_hash")
+  id                 Int                @id @default(autoincrement())
+  phone              String             @unique
+  passwordHash       String?            @map("password_hash")
   name               String?
   email              String?
-  nationalCode       String?             @map("national_code")
+  nationalCode       String?            @map("national_code")
   address            String?
-  locationId         Int?                @map("location_id")
-  location           Location?           @relation(fields: [locationId], references: [id])
+  locationId         Int?               @map("location_id")
+  location           Location?          @relation(fields: [locationId], references: [id])
   zip                String?
   fax                String?
   job                String?
   education          String?
-  birthDay           Int?                @map("birth_day")
-  birthMonth         Int?                @map("birth_month")
-  birthYear          Int?                @map("birth_year")
-  emergencyPhone     String?             @map("emergency_phone")
-  contactPhone       String?             @map("contact_phone")
-  avatarUrl          String?             @map("avatar_url")
-  nationalCardUrl    String?             @map("national_card_url")
+  birthDay           Int?               @map("birth_day")
+  birthMonth         Int?               @map("birth_month")
+  birthYear          Int?               @map("birth_year")
+  emergencyPhone     String?            @map("emergency_phone")
+  contactPhone       String?            @map("contact_phone")
+  avatarUrl          String?            @map("avatar_url")
+  nationalCardUrl    String?            @map("national_card_url")
   description        String?
-  verificationStatus VerificationStatus  @default(NOT_CONFIRMED) @map("verification_status")
-  isHost             Boolean             @default(false) @map("is_host")
-  role               UserRole            @default(USER)
+  verificationStatus VerificationStatus @default(NOT_CONFIRMED) @map("verification_status")
+  isHost             Boolean            @default(false) @map("is_host")
+  role               UserRole           @default(USER)
   // admin panel: deactivated users can't log in / operate
-  isActive           Boolean             @default(true) @map("is_active")
+  isActive           Boolean            @default(true) @map("is_active")
   // admin panel: "میزبان ویژه" highlight flag
-  isSpecialHost      Boolean             @default(false) @map("is_special_host")
+  isSpecialHost      Boolean            @default(false) @map("is_special_host")
 
-  bankAccount   BankAccount?
-  yellowCards   UserYellowCard[] @relation("UserYellowCards")
-  residences    Residence[]     @relation("HostResidences")
-  reservationsAsGuest Reservation[] @relation("GuestReservations")
-  reservationsAsHost  Reservation[] @relation("HostReservations")
-  favourites    Favourite[]
-  otpCodes      OtpCode[]
-  refreshTokens RefreshToken[]
-  reviews       Review[]
+  bankAccount         BankAccount?
+  yellowCards         UserYellowCard[] @relation("UserYellowCards")
+  residences          Residence[]      @relation("HostResidences")
+  reservationsAsGuest Reservation[]    @relation("GuestReservations")
+  reservationsAsHost  Reservation[]    @relation("HostReservations")
+  favourites          Favourite[]
+  otpCodes            OtpCode[]
+  refreshTokens       RefreshToken[]
+  reviews             Review[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -351,13 +351,13 @@ model OtpCode {
 }
 
 model RefreshToken {
-  id        Int      @id @default(autoincrement())
-  userId    Int      @map("user_id")
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tokenHash String   @unique @map("token_hash")
-  expiresAt DateTime @map("expires_at")
+  id        Int       @id @default(autoincrement())
+  userId    Int       @map("user_id")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
   revokedAt DateTime? @map("revoked_at")
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
   @@index([userId])
   @@map("refresh_tokens")
@@ -366,17 +366,17 @@ model RefreshToken {
 // ---------- Amenities & Rules (catalogs) ----------
 
 model Amenity {
-  id         Int               @id @default(autoincrement())
+  id         Int                @id @default(autoincrement())
   // stable English key from Odoo's product_attribute.x_title_en (pool,
   // jacuzzi, parking, type, area, ...) — search tag filters match on this
-  key        String?           @unique
+  key        String?            @unique
   category   String?
   name       String
-  iconUrl    String?           @map("icon_url")
+  iconUrl    String?            @map("icon_url")
   features   AmenityFeature[]
   residences ResidenceAmenity[]
-  createdAt  DateTime          @default(now())
-  updatedAt  DateTime          @updatedAt
+  createdAt  DateTime           @default(now())
+  updatedAt  DateTime           @updatedAt
 
   @@map("amenities")
 }
@@ -396,16 +396,16 @@ model AmenityFeature {
 }
 
 model Rule {
-  id         Int            @id @default(autoincrement())
+  id         Int             @id @default(autoincrement())
   // stable English key from Odoo's product_attribute.x_title_en
   // (smoking, pets, events, 24h, singles, id-required, cancellation)
-  key        String?        @unique
+  key        String?         @unique
   category   String?
   name       String
-  iconUrl    String?        @map("icon_url")
+  iconUrl    String?         @map("icon_url")
   residences ResidenceRule[]
-  createdAt  DateTime       @default(now())
-  updatedAt  DateTime       @updatedAt
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
 
   @@map("rules")
 }
@@ -413,15 +413,15 @@ model Rule {
 // ---------- Residences ----------
 
 model Residence {
-  id          Int            @id @default(autoincrement())
-  reference   String         @unique
-  hostId      Int            @map("host_id")
-  host        User           @relation("HostResidences", fields: [hostId], references: [id])
-  type        ResidenceType
-  state       ResidenceState @default(DRAFT)
-  step        Int?
-  completionPercent Int?     @map("completion_percent")
-  published   Boolean        @default(false)
+  id                Int            @id @default(autoincrement())
+  reference         String         @unique
+  hostId            Int            @map("host_id")
+  host              User           @relation("HostResidences", fields: [hostId], references: [id])
+  type              ResidenceType
+  state             ResidenceState @default(DRAFT)
+  step              Int?
+  completionPercent Int?           @map("completion_percent")
+  published         Boolean        @default(false)
 
   name        String
   name2       String?
@@ -429,40 +429,40 @@ model Residence {
   region      String? // coarse marketing region picked in the wizard (e.g. "شمال", "تهران و اطراف")
   rentType    String? @map("rent_type") // whole-place vs per-room etc, wizard step 3
 
-  locationId   Int?      @map("location_id")
-  location     Location? @relation(fields: [locationId], references: [id])
-  neighborhood String?
-  address      String?
+  locationId        Int?      @map("location_id")
+  location          Location? @relation(fields: [locationId], references: [id])
+  neighborhood      String?
+  address           String?
   // "آدرس در فاکتور" — the full postal address printed on invoices; the
   // public page shows the coarser `address` instead.
-  invoiceAddress String? @map("invoice_address")
+  invoiceAddress    String?   @map("invoice_address")
   // "نام پیشنهادی میزبان" — what the host proposed; `name` is what actually
   // renders publicly after admin review.
-  hostSuggestedName String? @map("host_suggested_name")
-  latitude     Float?
-  longitude    Float?
-  floor        String?
-  foundationArea Float? @map("foundation_area")
-  totalArea      Float? @map("total_area")
+  hostSuggestedName String?   @map("host_suggested_name")
+  latitude          Float?
+  longitude         Float?
+  floor             String?
+  foundationArea    Float?    @map("foundation_area")
+  totalArea         Float?    @map("total_area")
 
   capacity    Int?
-  maxCapacity Int?    @map("max_capacity")
+  maxCapacity Int? @map("max_capacity")
 
-  checkinFrom  String? @map("checkin_from")
-  checkinTo    String? @map("checkin_to")
-  checkout     String?
-  minReservableDays Int? @map("min_reservable_days")
+  checkinFrom       String? @map("checkin_from")
+  checkinTo         String? @map("checkin_to")
+  checkout          String?
+  minReservableDays Int?    @map("min_reservable_days")
   rulesDesc         String? @map("rules_desc") // free-text "additional rules", wizard step 12
 
-  cancelCommission  Float?  @map("cancel_commission")
-  reserveCommission Float?  @map("reserve_commission")
+  cancelCommission       Float?  @map("cancel_commission")
+  reserveCommission      Float?  @map("reserve_commission")
   cancellationPolicy     String? @map("cancellation_policy") // preset key or "custom", wizard step 13
   cancellationPolicyDesc String? @map("cancellation_policy_desc")
-  fullReturnTime          Int?    @map("full_return_time")
-  beforeStartTime         Int?    @map("before_start_time")
-  hostShareTotalAmount    Float?  @map("host_share_total_amount")
-  hostSharePastNights     Float?  @map("host_share_past_nights")
-  hostShareFutureNights   Float?  @map("host_share_future_nights")
+  fullReturnTime         Int?    @map("full_return_time")
+  beforeStartTime        Int?    @map("before_start_time")
+  hostShareTotalAmount   Float?  @map("host_share_total_amount")
+  hostSharePastNights    Float?  @map("host_share_past_nights")
+  hostShareFutureNights  Float?  @map("host_share_future_nights")
 
   otherAmenities String? @map("other_amenities") // free-text "other" amenities, wizard step 6
 
@@ -471,28 +471,28 @@ model Residence {
   ownerNationalCardUrl String? @map("owner_national_card_url") // only when host isn't the owner
 
   // General pricing (per-residence baseline; rooms may override)
-  weekPrice          Float?  @map("week_price")
-  weekendPrice       Float?  @map("weekend_price")
-  peakPrice          Float?  @map("peak_price")
-  extraPrice         Float?  @map("extra_price")
-  extraGuestsPrice    Float? @map("extra_guests_price")
+  weekPrice            Float? @map("week_price")
+  weekendPrice         Float? @map("weekend_price")
+  peakPrice            Float? @map("peak_price")
+  extraPrice           Float? @map("extra_price")
+  extraGuestsPrice     Float? @map("extra_guests_price")
   // "نرخ نفر اضافه ( ایام پیک )" — the per-extra-guest rate during peak days
   extraGuestsPeakPrice Float? @map("extra_guests_peak_price")
-  weeklyDiscount     Float?  @map("weekly_discount")
-  monthlyDiscount    Float?  @map("monthly_discount")
+  weeklyDiscount       Float? @map("weekly_discount")
+  monthlyDiscount      Float? @map("monthly_discount")
 
-  videoUrl    String? @map("video_url")
+  videoUrl          String? @map("video_url")
   // Host's free-text rules (legacy Odoo product_template.x_extra_rules) —
   // {"desc": "...", "<rule attr id>": ""|{"desc": "..."}}; the frontend's
   // ResRules reads its stringified form.
-  extraRules  Json?   @map("extra_rules")
+  extraRules        Json?   @map("extra_rules")
   // Boomgardi-only free-text feature names (legacy x_features, "#%"-joined)
   // — shown as "امکانات بوم گردی" on the detail page.
-  boomgardiFeatures Json? @map("boomgardi_features")
-  isFast      Boolean @default(false) @map("is_fast") // instant-book default
-  isFull      Boolean @default(false) @map("is_full")
-  isOffer     Boolean @default(false) @map("is_offer")
-  salesCount  Int     @default(0) @map("sales_count")
+  boomgardiFeatures Json?   @map("boomgardi_features")
+  isFast            Boolean @default(false) @map("is_fast") // instant-book default
+  isFull            Boolean @default(false) @map("is_full")
+  isOffer           Boolean @default(false) @map("is_offer")
+  salesCount        Int     @default(0) @map("sales_count")
 
   averageRating Float @default(0) @map("average_rating")
   reviewsCount  Int   @default(0) @map("reviews_count")
@@ -506,12 +506,12 @@ model Residence {
   distances      ResidenceDistance[]
   extraLocations ResidenceLocation[]
   rooms          Room[]
-  amenities    ResidenceAmenity[]
-  rules        ResidenceRule[]
-  calendarDays CalendarDay[]
-  reservations Reservation[]
-  favouritedBy Favourite[]
-  reviews      Review[]
+  amenities      ResidenceAmenity[]
+  rules          ResidenceRule[]
+  calendarDays   CalendarDay[]
+  reservations   Reservation[]
+  favouritedBy   Favourite[]
+  reviews        Review[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -574,33 +574,33 @@ model Room {
   description String?
   image       String?
 
-  capacity    Int?
-  maxCapacity Int?  @map("max_capacity")
-  singleBed   Int   @default(0) @map("single_bed")
-  doubleBed   Int   @default(0) @map("double_bed")
-  traditionalBed Int @default(0) @map("traditional_bed")
-  extraBeds   Int   @default(0) @map("extra_beds")
+  capacity       Int?
+  maxCapacity    Int? @map("max_capacity")
+  singleBed      Int  @default(0) @map("single_bed")
+  doubleBed      Int  @default(0) @map("double_bed")
+  traditionalBed Int  @default(0) @map("traditional_bed")
+  extraBeds      Int  @default(0) @map("extra_beds")
 
-  weekPrice        Float? @map("week_price")
-  weekendPrice     Float? @map("weekend_price")
-  peakPrice        Float? @map("peak_price")
-  extraPrice       Float? @map("extra_price")
-  extraPeakPrice   Float? @map("extra_peak_price")
-  weeklyDiscount   Float? @map("weekly_discount")
-  monthlyDiscount  Float? @map("monthly_discount")
+  weekPrice       Float? @map("week_price")
+  weekendPrice    Float? @map("weekend_price")
+  peakPrice       Float? @map("peak_price")
+  extraPrice      Float? @map("extra_price")
+  extraPeakPrice  Float? @map("extra_peak_price")
+  weeklyDiscount  Float? @map("weekly_discount")
+  monthlyDiscount Float? @map("monthly_discount")
 
-  coolingSystem    Boolean?    @map("cooling_system")
-  heatingSystem    Boolean?    @map("heating_system")
+  coolingSystem    Boolean?     @map("cooling_system")
+  heatingSystem    Boolean?     @map("heating_system")
   refrigerator     BedRoomType?
   wc               BedRoomType?
-  separateBathroom Boolean?    @map("separate_bathroom")
-  freeBreakfast    Boolean?    @map("free_breakfast")
+  separateBathroom Boolean?     @map("separate_bathroom")
+  freeBreakfast    Boolean?     @map("free_breakfast")
 
   isFast     Boolean @default(false) @map("is_fast")
   salesCount Int     @default(0) @map("sales_count")
 
-  calendarDays      CalendarDay[]
-  reservationRooms  ReservationRoom[]
+  calendarDays     CalendarDay[]
+  reservationRooms ReservationRoom[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -638,18 +638,18 @@ model ResidenceRule {
 // ---------- Calendar & pricing overrides ----------
 
 model CalendarDay {
-  id            Int           @id @default(autoincrement())
-  residenceId   Int           @map("residence_id")
-  residence     Residence     @relation(fields: [residenceId], references: [id], onDelete: Cascade)
-  roomId        Int?          @map("room_id") // null = applies at residence level
-  room          Room?         @relation(fields: [roomId], references: [id], onDelete: Cascade)
-  date          DateTime      @db.Date
-  isBlocked     Boolean       @default(false) @map("is_blocked") // reserved / manually filled
-  isFast        Boolean?      @map("is_fast") // instant-book override for this date
-  isPeak        Boolean       @default(false) @map("is_peak")
-  specialPrice  Float?        @map("special_price")
-  discountAmount Float?       @map("discount_amount")
-  discountType  DiscountType? @map("discount_type")
+  id             Int           @id @default(autoincrement())
+  residenceId    Int           @map("residence_id")
+  residence      Residence     @relation(fields: [residenceId], references: [id], onDelete: Cascade)
+  roomId         Int?          @map("room_id") // null = applies at residence level
+  room           Room?         @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  date           DateTime      @db.Date
+  isBlocked      Boolean       @default(false) @map("is_blocked") // reserved / manually filled
+  isFast         Boolean?      @map("is_fast") // instant-book override for this date
+  isPeak         Boolean       @default(false) @map("is_peak")
+  specialPrice   Float?        @map("special_price")
+  discountAmount Float?        @map("discount_amount")
+  discountType   DiscountType? @map("discount_type")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -678,23 +678,23 @@ model Reservation {
   hostId      Int       @map("host_id")
   host        User      @relation("HostReservations", fields: [hostId], references: [id])
 
-  startDate  DateTime @map("start_date") @db.Date
-  endDate    DateTime @map("end_date") @db.Date
+  startDate  DateTime  @map("start_date") @db.Date
+  endDate    DateTime  @map("end_date") @db.Date
   expiryDate DateTime? @map("expiry_date") // payment/approval deadline
-  daysCount  Int      @map("days_count")
+  daysCount  Int       @map("days_count")
 
   guestsCount      Int @map("guests_count")
   extraGuestsCount Int @default(0) @map("extra_guests_count")
 
   state ReservationState @default(HOST_APPROVAL)
 
-  cancelledBy ReservationCancelledBy? @map("cancelled_by")
-  cancelReason String?                @map("cancel_reason")
-  cancelDesc   String?                @map("cancel_desc")
+  cancelledBy  ReservationCancelledBy? @map("cancelled_by")
+  cancelReason String?                 @map("cancel_reason")
+  cancelDesc   String?                 @map("cancel_desc")
 
-  totalAmount     Float @map("total_amount")
-  paidAmount      Float @default(0) @map("paid_amount")
-  remainingAmount Float @default(0) @map("remaining_amount")
+  totalAmount     Float  @map("total_amount")
+  paidAmount      Float  @default(0) @map("paid_amount")
+  remainingAmount Float  @default(0) @map("remaining_amount")
   hostShare       Float? @map("host_share")
   websiteShare    Float? @map("website_share")
 
@@ -744,12 +744,12 @@ model Review {
   guestId       Int         @map("guest_id")
   guest         User        @relation(fields: [guestId], references: [id])
 
-  cleaning  Int
-  location  Int
-  quality   Int
-  integrity Int
-  greeting  Int
-  delivery  Int
+  cleaning      Int
+  location      Int
+  quality       Int
+  integrity     Int
+  greeting      Int
+  delivery      Int
   // Stored (not just computed on read) so residence-level average/count
   // aggregation stays a cheap read — recomputed whenever a review is
   // created for that residence.
@@ -791,17 +791,17 @@ model Favourite {
 // Odoo's website_tags.x_domain.
 
 model SeoTag {
-  id     Int  @id @default(autoincrement())
-  odooId Int? @unique @map("odoo_id")
+  id            Int            @id @default(autoincrement())
+  odooId        Int?           @unique @map("odoo_id")
   // Query-param key (/search/<city>?<key>=1). IMMUTABLE — ~10k rows in
   // legacy_redirects already point at these exact keys.
-  key    String @unique
+  key           String         @unique
   // Long display name, e.g. "اجاره ویلا و سوئیت استخردار" (Odoo x_name).
-  name       String
+  name          String
   // Short chip label used in breadcrumbs/filters, e.g. "استخردار".
-  shortLabel String? @map("short_label")
+  shortLabel    String?        @map("short_label")
   // Internal note describing the combination (Odoo x_desc).
-  description String?
+  description   String?
   // Scopes the tag to one residence type (Odoo x_type: suit | boomgardi).
   residenceType ResidenceType? @map("residence_type")
 
@@ -864,8 +864,8 @@ model SeoTagCondition {
 // LegacyRedirect); this row supplies the curated SEO for the page they land
 // on, /search/<slug>?<tag>=1.
 model TagPage {
-  id     Int  @id @default(autoincrement())
-  odooId Int? @unique @map("odoo_id")
+  id         Int       @id @default(autoincrement())
+  odooId     Int?      @unique @map("odoo_id")
   // null = a "تگ مادر": the nationwide tag page (/search?pool=1), with no
   // location narrowing it. Odoo kept 166 of these in tag_url with no category.
   locationId Int?      @map("location_id")
@@ -912,4 +912,96 @@ model AdminFilterPreset {
 
   @@index([entity])
   @@map("admin_filter_presets")
+}
+
+// ---------- Sitemap & robots.txt ----------
+// Rule-driven, not page-by-page: the ops team configures WHICH families of
+// URLs belong in the sitemap and under what thresholds, and the files are
+// generated from live data on request. Nothing is stored per URL.
+
+enum ChangeFreq {
+  ALWAYS
+  HOURLY
+  DAILY
+  WEEKLY
+  MONTHLY
+  YEARLY
+  NEVER
+}
+
+// Single row (id is pinned to 1) holding the site-wide switches.
+model SitemapSettings {
+  id      Int    @id @default(1)
+  siteUrl String @default("https://lidomatrip.com") @map("site_url")
+
+  // Master switch. When false, robots.txt serves "Disallow: /" for every agent
+  // — the staging/pre-launch posture. Deliberately separate from robotsEnabled
+  // so turning the site private cannot be done by accident.
+  allowIndexing Boolean @default(true) @map("allow_indexing")
+
+  sitemapEnabled Boolean @default(true) @map("sitemap_enabled")
+  robotsEnabled  Boolean @default(true) @map("robots_enabled")
+
+  // The sitemap spec caps a file at 50,000 URLs / 50MB. Kept below the ceiling
+  // so a long URL set cannot push a file over the byte limit.
+  maxUrlsPerFile Int @default(45000) @map("max_urls_per_file")
+
+  // Free-text appended verbatim to robots.txt, for directives this model does
+  // not cover (Host:, Clean-param:, vendor-specific lines).
+  robotsExtra String? @map("robots_extra")
+  crawlDelay  Int?    @map("crawl_delay")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("sitemap_settings")
+}
+
+// One row per URL family. `key` is matched in code — rows are seeded, not
+// created by admins, because each key maps to a query the generator knows.
+model SitemapSection {
+  id    Int    @id @default(autoincrement())
+  key   String @unique // static | locations | tag-pages | residences | hosts
+  label String
+
+  isEnabled  Boolean    @default(true) @map("is_enabled")
+  changeFreq ChangeFreq @default(WEEKLY) @map("change_freq")
+  priority   Float      @default(0.5)
+
+  // Thin-content guard: a place or tag page with almost no listings is a weak
+  // page to hand a crawler. 0 disables the check.
+  minResidenceCount Int @default(0) @map("min_residence_count")
+
+  // Include <lastmod>. Off for families whose updatedAt is noisy.
+  includeLastmod Boolean @default(true) @map("include_lastmod")
+
+  // tag-pages only: honour Odoo x_show_in_sitemap. Odoo flagged just 58 of
+  // 9,312 pages, so leaving this on keeps the sitemap hostage to a legacy
+  // flag. Turn it off to include every active tag page above the threshold.
+  requireSitemapFlag Boolean @default(true) @map("require_sitemap_flag")
+
+  sortOrder Int @default(0) @map("sort_order")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("sitemap_sections")
+}
+
+// Extra robots.txt directives, editable in the admin panel.
+model RobotsRule {
+  id        Int     @id @default(autoincrement())
+  userAgent String  @default("*") @map("user_agent")
+  // "Disallow" | "Allow"
+  directive String  @default("Disallow")
+  path      String
+  isActive  Boolean @default(true) @map("is_active")
+  note      String?
+  sortOrder Int     @default(0) @map("sort_order")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userAgent])
+  @@map("robots_rules")
 }

@@ -42,6 +42,7 @@ import * as controller from "./admin.controller";
 import * as service from "./admin.service";
 import { buildCatalogRouter } from "./catalogRouter";
 import taxonomyRouter from "./taxonomy.routes";
+import sitemapRouter from "./sitemap.routes";
 
 const router = Router();
 router.use(requireAuth, requireAdmin);
@@ -124,6 +125,9 @@ router.delete("/filter-presets/:id", validate(idParamSchema), asyncHandler(contr
 
 // Location tree + SEO tags + curated tag pages.
 router.use(taxonomyRouter);
+
+// Sitemap + robots.txt configuration.
+router.use(sitemapRouter);
 
 router.use("/amenities", buildCatalogRouter(service.amenities, upsertAmenitySchema));
 router.use("/rules", buildCatalogRouter(service.rules, upsertRuleSchema));

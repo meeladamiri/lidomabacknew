@@ -26,7 +26,7 @@ router.get(
             reviewsCount: true,
             weekPrice: true,
             maxCapacity: true,
-            city: { select: { name: true } },
+            location: { select: { name: true } },
             images: { take: 1, orderBy: { sortOrder: "asc" } },
           },
         },

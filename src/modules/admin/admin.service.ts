@@ -141,7 +141,7 @@ const USER_SELECT_BASE = {
   email: true,
   nationalCode: true,
   address: true,
-  cityId: true,
+  locationId: true,
   zip: true,
   fax: true,
   job: true,
@@ -264,7 +264,7 @@ export async function getUser(id: number) {
     where: { id },
     select: {
       ...USER_SELECT_BASE,
-      city: { include: { province: true } },
+      location: { include: { parent: true } },
       bankAccount: true,
       residences: {
         select: {
@@ -275,7 +275,7 @@ export async function getUser(id: number) {
           averageRating: true,
           weekPrice: true,
           images: { take: 1, orderBy: { sortOrder: "asc" } },
-          city: { select: { name: true } },
+          location: { select: { name: true } },
         },
         orderBy: { createdAt: "desc" },
       },
@@ -448,7 +448,7 @@ function buildResidenceFilterWhere(filters: FilterCondition[]): Prisma.Residence
     if (!meta || !OPERATORS_BY_TYPE[meta.type].includes(f.operator)) continue; // ignore anything outside the whitelist
 
     if (f.field === "cityName") {
-      where.city = { name: { contains: String(f.value), mode: "insensitive" } };
+      where.location = { name: { contains: String(f.value), mode: "insensitive" } };
       continue;
     }
 
@@ -539,7 +539,7 @@ export async function listResidences(params: {
       orderBy,
       include: {
         host: { select: { id: true, name: true, phone: true } },
-        city: { include: { province: { select: { name: true } } } },
+        location: { include: { parent: { select: { name: true, type: true } } } },
         images: { take: 1, orderBy: { sortOrder: "asc" } },
         _count: { select: { rooms: true, reservations: true } },
       },
@@ -652,7 +652,7 @@ export async function exportResidencesCsv(ids: number[]) {
     where: { id: { in: ids } },
     include: {
       host: { select: { name: true, phone: true } },
-      city: { include: { province: { select: { name: true } } } },
+      location: { include: { parent: { select: { name: true, type: true } } } },
     },
     orderBy: { createdAt: "desc" },
   });
@@ -677,8 +677,8 @@ export async function exportResidencesCsv(ids: number[]) {
       r.name,
       RESIDENCE_TYPE_LABEL[r.type],
       r.state,
-      r.city?.province?.name ?? "",
-      r.city?.name ?? "",
+      r.location?.parent?.type === "PROVINCE" ? r.location.parent.name : "",
+      r.location?.name ?? "",
       r.host?.name ?? "",
       r.host?.phone ?? "",
       r.weekPrice ?? 0,
@@ -707,10 +707,10 @@ export async function getResidence(id: number) {
           _count: { select: { residences: true } },
         },
       },
-      city: { include: { province: true } },
+      location: { include: { parent: true } },
       images: { orderBy: { sortOrder: "asc" } },
       distances: { orderBy: { sortOrder: "asc" } },
-      extraCities: { include: { city: { select: { id: true, name: true } } } },
+      extraLocations: { include: { location: { select: { id: true, name: true } } } },
       rooms: true,
       amenities: { include: { amenity: { include: { features: true } } } },
       rules: { include: { rule: true } },
@@ -746,18 +746,18 @@ export async function setResidenceDistances(
   return prisma.residenceDistance.findMany({ where: { residenceId: id }, orderBy: { sortOrder: "asc" } });
 }
 
-/** Replaces "دیگر شهرهای اقامتگاه". */
+/** Replaces "دیگر شهرهای اقامتگاه" — the extra locations this listing appears under. */
 export async function setResidenceExtraCities(id: number, cityIds: number[]) {
-  await prisma.residenceCity.deleteMany({ where: { residenceId: id } });
+  await prisma.residenceLocation.deleteMany({ where: { residenceId: id } });
   if (cityIds.length) {
-    await prisma.residenceCity.createMany({
-      data: cityIds.map((cityId) => ({ residenceId: id, cityId })),
+    await prisma.residenceLocation.createMany({
+      data: cityIds.map((locationId) => ({ residenceId: id, locationId })),
       skipDuplicates: true,
     });
   }
-  return prisma.residenceCity.findMany({
+  return prisma.residenceLocation.findMany({
     where: { residenceId: id },
-    include: { city: { select: { id: true, name: true } } },
+    include: { location: { select: { id: true, name: true } } },
   });
 }
 
@@ -1008,7 +1008,7 @@ export const rules = {
 export const peakDays = {
   list: () =>
     prisma.peakDay.findMany({
-      include: { cities: { include: { city: { select: { id: true, name: true } } } } },
+      include: { locations: { include: { location: { select: { id: true, name: true } } } } },
       orderBy: { startDate: "desc" },
     }),
   create: ({ cityIds, ...data }: any) =>
@@ -1017,36 +1017,38 @@ export const peakDays = {
         ...data,
         startDate: new Date(data.startDate),
         endDate: new Date(data.endDate),
-        ...(cityIds?.length ? { cities: { create: cityIds.map((cityId: number) => ({ cityId })) } } : {}),
+        ...(cityIds?.length ? { locations: { create: cityIds.map((locationId: number) => ({ locationId })) } } : {}),
       },
-      include: { cities: { include: { city: { select: { id: true, name: true } } } } },
+      include: { locations: { include: { location: { select: { id: true, name: true } } } } },
     }),
   update: async (id: number, { cityIds, ...data }: any) => {
-    if (cityIds) await prisma.peakDayCity.deleteMany({ where: { peakDayId: id } });
+    if (cityIds) await prisma.peakDayLocation.deleteMany({ where: { peakDayId: id } });
     return prisma.peakDay.update({
       where: { id },
       data: {
         ...data,
         ...(data.startDate ? { startDate: new Date(data.startDate) } : {}),
         ...(data.endDate ? { endDate: new Date(data.endDate) } : {}),
-        ...(cityIds?.length ? { cities: { create: cityIds.map((cityId: number) => ({ cityId })) } } : {}),
+        ...(cityIds?.length ? { locations: { create: cityIds.map((locationId: number) => ({ locationId })) } } : {}),
       },
-      include: { cities: { include: { city: { select: { id: true, name: true } } } } },
+      include: { locations: { include: { location: { select: { id: true, name: true } } } } },
     });
   },
   remove: (id: number) => prisma.peakDay.delete({ where: { id } }),
 };
 
+// Kept under the old names so existing admin routes keep working; both now
+// read the one location tree, filtered by type.
 export const cities = {
-  list: () => prisma.city.findMany({ include: { province: true } }),
-  create: (data: Prisma.CityCreateInput) => prisma.city.create({ data }),
-  update: (id: number, data: Prisma.CityUpdateInput) => prisma.city.update({ where: { id }, data }),
-  remove: (id: number) => prisma.city.delete({ where: { id } }),
+  list: () => prisma.location.findMany({ where: { type: "CITY" }, include: { parent: true } }),
+  create: (data: Prisma.LocationCreateInput) => prisma.location.create({ data: { ...data, type: "CITY" } }),
+  update: (id: number, data: Prisma.LocationUpdateInput) => prisma.location.update({ where: { id }, data }),
+  remove: (id: number) => prisma.location.delete({ where: { id } }),
 };
 
 export const provinces = {
-  list: () => prisma.province.findMany(),
-  create: (data: Prisma.ProvinceCreateInput) => prisma.province.create({ data }),
-  update: (id: number, data: Prisma.ProvinceUpdateInput) => prisma.province.update({ where: { id }, data }),
-  remove: (id: number) => prisma.province.delete({ where: { id } }),
+  list: () => prisma.location.findMany({ where: { type: "PROVINCE" } }),
+  create: (data: Prisma.LocationCreateInput) => prisma.location.create({ data: { ...data, type: "PROVINCE" } }),
+  update: (id: number, data: Prisma.LocationUpdateInput) => prisma.location.update({ where: { id }, data }),
+  remove: (id: number) => prisma.location.delete({ where: { id } }),
 };

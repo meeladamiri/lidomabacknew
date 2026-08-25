@@ -2,11 +2,14 @@ import { Prisma } from "../../generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { publicResidenceId } from "@/lib/publicId";
 import { RESIDENCE_TYPE_SLUG } from "@/lib/residenceType";
+import { resolveLocationBySlug, expandSlugToLocationIds } from "@/lib/location";
+import { getActiveSeoTags, findSeoTagByKey, tagToWhere, featureToWhere } from "@/lib/seoTags";
 import type { ResidenceType } from "@/generated/prisma/client";
 
 export async function getPopularDestinations() {
   // Cities ranked by number of published residences.
-  const cities = await prisma.city.findMany({
+  const cities = await prisma.location.findMany({
+    where: { type: "CITY" },
     include: { _count: { select: { residences: true } } },
     orderBy: { residences: { _count: "desc" } },
     take: 12,
@@ -23,8 +26,11 @@ export async function getPopularDestinations() {
 }
 
 export async function getProvincesAndCities() {
-  const provinces = await prisma.province.findMany({
-    include: { cities: { select: { name: true }, orderBy: { name: "asc" } } },
+  const provinces = await prisma.location.findMany({
+    where: { type: "PROVINCE" },
+    include: {
+      children: { where: { type: "CITY" }, select: { name: true }, orderBy: { name: "asc" } },
+    },
     orderBy: { name: "asc" },
   });
 
@@ -33,7 +39,7 @@ export async function getProvincesAndCities() {
     name: p.name,
     latitude: p.latitude,
     longitude: p.longitude,
-    cities: p.cities.map((c) => c.name),
+    cities: p.children.map((c) => c.name),
   }));
 }
 
@@ -66,13 +72,13 @@ export async function resolveLegacyImage(model: string, odooId: number) {
 
 export async function searchCitiesAndProvinces(query: string) {
   const [cities, provinces, residences] = await Promise.all([
-    prisma.city.findMany({
-      where: { name: { contains: query, mode: "insensitive" } },
-      include: { province: true, _count: { select: { residences: true } } },
+    prisma.location.findMany({
+      where: { type: { not: "PROVINCE" }, name: { contains: query, mode: "insensitive" } },
+      include: { parent: true, _count: { select: { residences: true } } },
       take: 10,
     }),
-    prisma.province.findMany({
-      where: { name: { contains: query, mode: "insensitive" } },
+    prisma.location.findMany({
+      where: { type: "PROVINCE", name: { contains: query, mode: "insensitive" } },
       take: 5,
     }),
     // Residence-by-name matches — the destination search box shows these
@@ -111,46 +117,20 @@ export async function searchCitiesAndProvinces(query: string) {
   };
 }
 
-// Feature-key filters (?pool=1, ?villa=1, ?jungle=1, ?smoking=1, ...) — the
-// SEO tags AND the search-page filter modal both send these. Three kinds:
-//   1. TAG_AMENITY_FILTERS: keys that resolve to an Amenity.key, optionally
-//      matching the stored value (categorical attrs like type/area). Binary
-//      amenities filter on link existence ("ندارد" links are never stored).
-//   2. BINARY_AMENITY_KEYS: the filter-modal amenity checkboxes — the key IS
-//      the Amenity.key (both come from Odoo's x_title_en).
-//   3. RULE_KEYS: rule checkboxes — residence must have the rule with value
-//      "بله" (values are بله/خیر, cancellation excepted).
-const TAG_AMENITY_FILTERS: Record<string, { key: string; value?: string }> = {
-  // SEO tags
-  villa: { key: "type", value: "خانه ویلایی" },
-  cottage: { key: "type", value: "کلبه" },
-  "jungle-cottage": { key: "type", value: "کلبه" },
-  hotelapartment: { key: "type", value: "هتل آپارتمان" },
-  apartment: { key: "type", value: "آپارتمان" },
-  guesthouse: { key: "type", value: "مهمان خانه" },
-  hostel: { key: "type", value: "مهمان خانه" },
-  village: { key: "area", value: "روستایی" },
-  forest: { key: "area", value: "جنگلی" },
-  mountain: { key: "area", value: "کوهستانی" },
-  beach: { key: "area", value: "ساحلی" },
-  // filter-modal region options (residences_regions constant)
-  urban: { key: "area", value: "شهری" },
-  rural: { key: "area", value: "روستایی" },
-  suburb: { key: "area", value: "حومه شهر" },
-  jungle: { key: "area", value: "جنگلی" },
-  desert: { key: "area", value: "بیابانی" },
+// Feature-key filters (?pool=1, ?villa=1, ?jungle=1, ?smoking=1, ...) are now
+// resolved from the database — see lib/seoTags.ts. A curated SEO tag wins; a
+// plain Amenity.key or Rule.key still works for the filter-modal checkboxes.
+//
+// The filter-modal region options (urban/rural/suburb/jungle/desert) are NOT
+// SEO tags and map onto values of the "area" attribute. They stay here because
+// the modal's keys deliberately differ from the stored Persian values.
+const MODAL_AREA_FILTERS: Record<string, string> = {
+  urban: "شهری",
+  rural: "روستایی",
+  suburb: "حومه شهر",
+  jungle: "جنگلی",
+  desert: "بیابانی",
 };
-
-const BINARY_AMENITY_KEYS = new Set([
-  "bathroom", "guard", "food", "billiard", "jacuzzi", "sauna", "pool",
-  "barbecue", "squat-toilet", "western-toilet", "elevator", "parking",
-  "wardrobe", "dining-table", "furniture", "hairdryer", "iron", "washer",
-  "vacuum", "refrigerator", "microwave", "stove", "kitchenware", "cooling",
-  "heating", "toiletries", "internet", "tv", "mobile", "blanket", "balcony",
-  "mattress", "view", "gym", "breakfast", "cosmetics", "recreational",
-]);
-
-const RULE_KEYS = new Set(["smoking", "singles", "id-required", "events", "24h", "pets"]);
 
 export interface ResidenceSearchFilters {
   cityId?: number;
@@ -186,11 +166,13 @@ export const RESIDENCE_CARD_SELECT = {
   capacity: true,
   weekPrice: true,
   weekendPrice: true,
-  city: {
+  location: {
     select: {
       id: true,
       name: true,
-      province: { select: { id: true, name: true } },
+      // The card shows "<city>، <province>" — the breadcrumb parent stands in
+      // for the old `province` relation.
+      parent: { select: { id: true, name: true, type: true } },
     },
   },
   neighborhood: true,
@@ -217,8 +199,11 @@ export function toCard(residence: Prisma.ResidenceGetPayload<{ select: typeof RE
     capacity: residence.capacity,
     minPrice: residence.weekPrice,
     weekendPrice: residence.weekendPrice,
-    city: residence.city?.name ?? null,
-    province: residence.city?.province?.name ?? null,
+    city: residence.location?.name ?? null,
+    // Only a PROVINCE parent is the province — a city's parent can now be
+    // another city or a country.
+    province:
+      residence.location?.parent?.type === "PROVINCE" ? residence.location.parent.name : null,
     neighborhood: residence.neighborhood,
     images: residence.images.map((i: { url: string }) => i.url),
     mainImage: residence.images[0]?.url ?? null,
@@ -226,57 +211,8 @@ export function toCard(residence: Prisma.ResidenceGetPayload<{ select: typeof RE
   };
 }
 
-const REGION_ALIASES: Record<string, string[]> = {
-  shomal: ["مازندران", "گیلان", "گلستان"],
-};
-
-// Every legacy website_tags row: query-param key -> Persian display name.
-// Tag×city pages (/search/<slug>?<tag>=1) are individually indexed for
-// topical authority — their H1/meta are templated off these names, exactly
-// like the old production site did.
-const TAG_TITLES: Record<string, string> = {
-  villa: "اجاره ویلا",
-  pool: "اجاره ویلا و سوئیت استخردار",
-  luxury: "اجاره ویلا و سوئیت لوکس",
-  jacuzzi: "اجاره ویلا و سوئیت جکوزی دار",
-  forest: "اجاره ویلا و سوئیت جنگلی",
-  mountain: "اجاره ویلا و سوئیت کوهستانی",
-  beach: "اجاره ویلا و سوئیت ساحلی",
-  "jungle-cottage": "اجاره کلبه جنگلی",
-  cottage: "اجاره کلبه چوبی",
-  garden: "اجاره باغ ویلا",
-  hotelapartment: "اجاره هتل آپارتمان",
-  village: "اجاره خانه روستایی",
-  guesthouse: "اجاره مهمان خانه و هاستل",
-  hostel: "اجاره هاستل",
-  economic: "اجاره ویلا و سوئیت ارزان",
-  fast: "رزرو آنی",
-  apartment: "اجاره روزانه خانه و آپارتمان مبله",
-  boomgardi: "اجاره اقامتگاه بوم گردی",
-};
-
 // Public site origin for absolute canonical URLs (matches production).
 const SITE_ORIGIN = "https://lidomatrip.com";
-
-// The category tags surfaced as "جستجوهای مرتبط" on search pages — the
-// legacy website_tags rows with x_suggest = true, in their original order.
-// `tag` is the query-param key (/search/<slug>?<tag>=1), `title` the label.
-const SUGGESTED_TAGS: { tag: string; title: string }[] = [
-  { tag: "villa", title: "اجاره ویلا" },
-  { tag: "pool", title: "اجاره ویلا و سوئیت استخردار" },
-  { tag: "luxury", title: "اجاره ویلا و سوئیت لوکس" },
-  { tag: "jacuzzi", title: "اجاره ویلا و سوئیت جکوزی دار" },
-  { tag: "forest", title: "اجاره ویلا و سوئیت جنگلی" },
-  { tag: "mountain", title: "اجاره ویلا و سوئیت کوهستانی" },
-  { tag: "beach", title: "اجاره ویلا و سوئیت ساحلی" },
-  { tag: "cottage", title: "اجاره کلبه چوبی" },
-  { tag: "hotelapartment", title: "اجاره هتل آپارتمان" },
-  { tag: "village", title: "اجاره خانه روستایی" },
-  { tag: "guesthouse", title: "اجاره مهمان خانه و هاستل" },
-  { tag: "economic", title: "اجاره ویلا و سوئیت ارزان" },
-  { tag: "apartment", title: "اجاره روزانه خانه و آپارتمان مبله" },
-  { tag: "boomgardi", title: "اجاره اقامتگاه بوم گردی" },
-];
 
 // SEO page data for /search/<slug> — the new-backend equivalent of legacy
 // Odoo's /api/search/new_page_data (meta tags, page H1, guide content block,
@@ -284,20 +220,15 @@ const SUGGESTED_TAGS: { tag: string; title: string }[] = [
 export async function getSearchPageData(slug: string, tags?: string[]) {
   const q = slug.trim();
 
-  const city = await prisma.city.findFirst({
-    where: {
-      OR: [{ titleEn: { equals: q, mode: "insensitive" } }, { name: q }],
-    },
-    include: { province: true },
-  });
+  const place = await resolveLocationBySlug(q);
+  const parent =
+    place?.parentId != null
+      ? await prisma.location.findUnique({ where: { id: place.parentId } })
+      : null;
+  // The response keeps the legacy city/province shape the frontend expects.
+  const city = place && place.type !== "PROVINCE" ? place : null;
+  const province = place?.type === "PROVINCE" ? place : parent?.type === "PROVINCE" ? parent : null;
 
-  const province = city
-    ? null
-    : await prisma.province.findFirst({
-        where: { OR: [{ titleEn: { equals: q, mode: "insensitive" } }, { name: q }] },
-      });
-
-  const place = city ?? province;
   const placeName = place?.name ?? "";
   const placeSlug = place?.titleEn ?? q;
 
@@ -326,12 +257,32 @@ export async function getSearchPageData(slug: string, tags?: string[]) {
       ]
     : [];
 
-  // Tag×city pages (?pool=1 etc.) carry their own SEO identity — H1, meta
-  // title, description, and canonical are templated off the tag's Persian
-  // name, byte-matching old production (verified against its
-  // new_page_data). The first recognized tag wins.
-  const tagKey = (tags ?? []).find((t) => TAG_TITLES[t]) ?? null;
-  const tagTitle = tagKey ? TAG_TITLES[tagKey] : null;
+  // Tag×location pages (?pool=1 etc.) carry their own SEO identity. The first
+  // recognized tag wins, matching the old behaviour.
+  const activeTags = await getActiveSeoTags();
+  const tagKey = (tags ?? []).find((t) => activeTags.some((x) => x.key === t)) ?? null;
+  const tag = tagKey ? await findSeoTagByKey(tagKey) : null;
+  const tagTitle = tag?.name ?? null;
+
+  // The default (no residence type) SEO set for this place. The بوم‌گردی and
+  // هتل variants live alongside it and are selected by the type-scoped pages.
+  const placeSeo = place
+    ? await prisma.locationSeo.findFirst({
+        where: { locationId: place.id, residenceType: null },
+      })
+    : null;
+
+  // The curated page for this exact tag × location, imported from Odoo's
+  // tag_url. 9,310 of these carry hand-written meta that used to be discarded
+  // in favour of a generated template.
+  const tagPage =
+    tag && place
+      ? await prisma.tagPage.findFirst({
+          where: { locationId: place.id, tagId: tag.id, isActive: true },
+        })
+      : tag
+        ? await prisma.tagPage.findFirst({ where: { locationId: null, tagId: tag.id, isActive: true } })
+        : null;
 
   const cityCanonical = place?.titleEn ? `${SITE_ORIGIN}/search/${place.titleEn}` : null;
 
@@ -339,48 +290,65 @@ export async function getSearchPageData(slug: string, tags?: string[]) {
   let title: string | null;
   let description: string | null;
   let canonical: string | null;
+  let content_title: string | null;
+  let content: string | null;
 
   if (tagTitle) {
     const core = placeName ? `${tagTitle} در ${placeName}` : tagTitle;
     page_title = core;
-    title = `${core} | تضمین امنیت و نظافت | لیدوما تریپ`;
-    description = `سایت رسمی ${core} | تضمین امنیت، قیمت و نظافت | پشتیبانی 7/24 | رزرو تلفنی و آنلاین قطعی${
-      placeName ? ` در بهترین مناطق ${placeName}` : ""
-    }`;
+    // Prefer what the ops team actually wrote for this page; the template is
+    // the fallback for the pages Odoo never had a row for.
+    title =
+      tagPage?.metaTitle ?? `${core} | تضمین امنیت و نظافت | لیدوما تریپ`;
+    description =
+      tagPage?.metaDescription ??
+      `سایت رسمی ${core} | تضمین امنیت، قیمت و نظافت | پشتیبانی 7/24 | رزرو تلفنی و آنلاین قطعی${
+        placeName ? ` در بهترین مناطق ${placeName}` : ""
+      }`;
+    // Legacy x_canonical was deliberately not imported — it pointed at URLs
+    // that themselves 301 (see scripts/migrate-odoo-tag-pages.ts). The
+    // canonical is generated against the real destination instead.
     canonical = cityCanonical
       ? `${cityCanonical}?${tagKey}=1`
       : `${SITE_ORIGIN}/search?${tagKey}=1`;
+    // Only 22 tag pages have a hand-written body; the rest show none, which is
+    // what production did.
+    content_title = tagPage?.contentTitle ?? tag?.contentTitle ?? null;
+    content = tagPage?.contentHtml ?? tag?.contentHtml ?? null;
   } else {
-    page_title = placeName ? `اجاره ویلا، سوئیت و اقامتگاه در ${placeName}` : null;
-    title = place?.metaTitle ?? null;
-    description = place?.metaDescription ?? null;
+    page_title = placeSeo?.pageTitle ?? (placeName ? `اجاره ویلا، سوئیت و اقامتگاه در ${placeName}` : null);
+    title = placeSeo?.metaTitle ?? null;
+    description = placeSeo?.metaDescription ?? null;
     canonical = cityCanonical;
+    content_title = placeSeo?.contentTitle ?? null;
+    content = placeSeo?.contentHtml ?? null;
   }
+
+  // "جستجوهای مرتبط" — the tags Odoo flagged with x_suggest, in their order.
+  const suggested = activeTags
+    .filter((t) => t.isSuggested)
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id);
 
   return {
     city: city ? { name: city.name, title_en: city.titleEn } : null,
-    province: city?.province
-      ? { name: city.province.name, title_en: city.province.titleEn }
-      : province
-      ? { name: province.name, title_en: province.titleEn }
-      : null,
+    province: province ? { name: province.name, title_en: province.titleEn } : null,
     cat_name: placeName || null,
     page_title,
     title,
     description,
-    // The city guide block belongs to the plain city page only — tag pages
+    // The guide block belongs to the plain location page only — tag pages
     // don't show it (matches production).
-    content_title: tagTitle ? null : place?.contentTitle ?? null,
-    content: tagTitle ? null : place?.contentHtml ?? null,
+    content_title,
+    content,
     canonical,
     related_tags: placeName
-      ? SUGGESTED_TAGS.map((t) => ({
-          tag: t.tag,
+      ? suggested.map((t) => ({
+          tag: t.key,
           cat_title: placeSlug,
           cat_name: placeName,
-          title: t.title,
+          title: t.name,
         }))
-      : SUGGESTED_TAGS.map((t) => ({ tag: t.tag, cat_title: null, cat_name: null, title: t.title })),
+      : suggested.map((t) => ({ tag: t.key, cat_title: null, cat_name: null, title: t.name })),
     faqs: tagTitle ? [] : faqs,
   };
 }
@@ -394,67 +362,57 @@ export async function searchResidences(filters: ResidenceSearchFilters) {
     published: true,
   };
 
-  if (filters.cityId) where.cityId = filters.cityId;
-  if (filters.cityName && REGION_ALIASES[filters.cityName.toLowerCase()]) {
-    // Legacy "region" slugs (Odoo x_category_type='region') that don't map to
-    // a single city/province. Only shomal is wired up for now — it's linked
-    // from the homepage banner and indexed as /search/shomal. The other
-    // region slugs (westtehran, southiran, ...) still need real region
-    // support if their SEO pages matter.
-    where.city = { province: { name: { in: REGION_ALIASES[filters.cityName.toLowerCase()] } } };
-  } else if (filters.cityName) {
+  if (filters.cityId) where.locationId = filters.cityId;
+  if (filters.cityName) {
     // Accepts either the Persian name ("تهران") or the hand-curated English
-    // slug ("tehran" — City.titleEn, from Odoo's product_public_category
-    // x_title_en, which every old /search/<slug> SEO URL is built on). A
-    // province name/slug (e.g. "mazandaran") matches all its cities.
+    // slug ("tehran" — Location.titleEn, from Odoo's product_public_category
+    // x_title_en, which every old /search/<slug> SEO URL is built on).
     const q = filters.cityName;
-    where.city = {
-      OR: [
-        { titleEn: { equals: q, mode: "insensitive" } },
-        { name: { contains: q, mode: "insensitive" } },
-        {
-          province: {
-            OR: [
-              { titleEn: { equals: q, mode: "insensitive" } },
-              { name: { contains: q, mode: "insensitive" } },
-            ],
-          },
-        },
-      ],
-    };
+    // Every location the slug matches, each expanded. A province spans its
+    // cities and "شهرهای زیرمجموعه" pull in curated extras (this replaced the
+    // hardcoded shomal alias); a slug shared by a city and its province, or by
+    // two duplicate city rows, still lists the union the old query produced.
+    const ids = await expandSlugToLocationIds(q);
+    if (ids) {
+      where.locationId = ids.length === 1 ? ids[0] : { in: ids };
+    } else {
+      // Unresolvable slug: fall back to the old fuzzy name match so a Persian
+      // name typed straight into the URL still finds something.
+      where.location = {
+        OR: [
+          { titleEn: { equals: q, mode: "insensitive" } },
+          { name: { contains: q, mode: "insensitive" } },
+        ],
+      };
+    }
   }
   if (filters.type) where.type = filters.type;
 
-  // SEO tag filters (?pool=1, ?villa=1, ...). Amenity-backed tags AND
-  // together; luxury/economic are price-band tags from the legacy
-  // website_tags domains (500,000 threshold); fast maps to isFast.
+  // Feature filters (?pool=1, ?villa=1, ?smoking=1, ...). Curated SEO tags
+  // resolve to their stored condition groups; plain amenity/rule keys and the
+  // filter modal's region options resolve directly. Unknown keys are ignored.
   if (filters.features?.length) {
     const and: Prisma.ResidenceWhereInput[] = [];
     for (const f of filters.features) {
-      const spec = TAG_AMENITY_FILTERS[f];
-      if (spec) {
+      const tag = await findSeoTagByKey(f);
+      if (tag?.isActive) {
+        and.push(...tagToWhere(tag));
+        continue;
+      }
+      const area = MODAL_AREA_FILTERS[f];
+      if (area) {
         and.push({
           amenities: {
             some: {
-              amenity: { key: spec.key },
-              ...(spec.value
-                ? { extraFeatures: { path: ["value"], string_contains: spec.value } }
-                : {}),
+              amenity: { key: "area" },
+              extraFeatures: { path: ["value"], string_contains: area },
             },
           },
         });
-      } else if (BINARY_AMENITY_KEYS.has(f)) {
-        and.push({ amenities: { some: { amenity: { key: f } } } });
-      } else if (RULE_KEYS.has(f)) {
-        and.push({ rules: { some: { rule: { key: f }, value: { equals: "بله" } } } });
-      } else if (f === "luxury") {
-        and.push({ weekPrice: { gt: 500000 } });
-      } else if (f === "economic") {
-        and.push({ weekPrice: { lte: 500000 } });
-      } else if (f === "fast") {
-        and.push({ isFast: true });
+        continue;
       }
-      // unknown keys are ignored
+      const clause = await featureToWhere(f);
+      if (clause) and.push(clause);
     }
     if (and.length) where.AND = and;
   }

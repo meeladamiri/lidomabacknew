@@ -84,25 +84,19 @@ enum OtpPurpose {
   RESET_PASSWORD
 }
 
-// ---------- Geo ----------
-
-model Province {
-  id        Int      @id @default(autoincrement())
-  name      String
-  titleEn   String?  @map("title_en")
-  // SEO fields for the /search/<titleEn> province page — same sources as City.
-  metaTitle       String? @map("meta_title")
-  metaDescription String? @map("meta_description")
-  contentTitle    String? @map("content_title")
-  contentHtml     String? @map("content_html")
-  latitude  Float?
-  longitude Float?
-  cities    City[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@map("provinces")
+// The legacy Odoo product_public_category tree had six kinds of place
+// (x_category_type). Only city/province were ever migrated; the rest are the
+// breadcrumb levels the marketing team actually curated.
+enum LocationType {
+  COUNTRY
+  PROVINCE
+  CITY
+  REGION // marketing region: شمال، اطراف تهران، … — spans provinces/cities
+  VILLAGE
+  NEIGHBORHOOD
 }
+
+// ---------- Geo ----------
 
 // Legacy Odoo SEO URLs (e.g. "/tags/villa/اجاره-ویلا-در-آبادان") -> their
 // 301 target on the new site (e.g. "/search/abadan?villa=1"). Populated from
@@ -131,59 +125,136 @@ model LegacyImageRedirect {
   @@map("legacy_image_redirects")
 }
 
-model City {
-  id         Int         @id @default(autoincrement())
-  name       String
-  titleEn    String?     @map("title_en")
-  imageUrl   String?     @map("image_url")
-  // SEO fields for the /search/<titleEn> city page, migrated from Odoo's
-  // product_public_category (website_meta_*, content, x_content_title).
+// One self-referencing tree for every kind of place, mirroring legacy Odoo's
+// product_public_category. This table IS the old `cities` table renamed, so
+// every city id (and therefore every residences.location_id) survives the
+// migration untouched — /search/<titleEn> keeps resolving to the same row.
+// Provinces were merged in as PROVINCE rows with fresh ids.
+model Location {
+  id      Int          @id @default(autoincrement())
+  // Legacy product_public_category.id. The original migration never stored
+  // this and re-matched places by name, which is why per-type SEO and the
+  // 9,969 tag_url pages could not be attached. Everything keys off it now.
+  odooId  Int?         @unique @map("odoo_id")
+  type    LocationType @default(CITY)
+  name    String
+  titleEn String?      @map("title_en")
+
+  imageUrl  String? @map("image_url")
+  bannerUrl String? @map("banner_url")
+
+  // Breadcrumb chain: کشور › استان › شهر › محله
+  parentId Int?       @map("parent_id")
+  parent   Location?  @relation("LocationTree", fields: [parentId], references: [id])
+  children Location[] @relation("LocationTree")
+
+  // "شهرهای زیرمجموعه" — deliberately separate from the breadcrumb tree. A
+  // search for this location also returns listings of every included one
+  // (شمال -> مازندران/گیلان/گلستان). Replaces the hardcoded REGION_ALIASES.
+  includes   LocationInclude[] @relation("IncludeParent")
+  includedIn LocationInclude[] @relation("IncludeChild")
+
+  // Odoo x_canonical_category — SEO consolidation onto another place
+  // (e.g. آذربایجان غربی -> ارومیه).
+  canonicalId  Int?       @map("canonical_id")
+  canonical    Location?  @relation("LocationCanonical", fields: [canonicalId], references: [id])
+  canonicalFor Location[] @relation("LocationCanonical")
+
+  latitude  Float?
+  longitude Float?
+
+  isActive     Boolean @default(true) @map("is_active")
+  isPublished  Boolean @default(true) @map("is_published") // website_published
+  isPrimary    Boolean @default(false) @map("is_primary") // x_asli
+  sortOrder    Int     @default(0) @map("sort_order")
+  popularIndex Int?    @map("popular_index")
+  shomalIndex  Int?    @map("shomal_index")
+  keywords     String? // x_tags — free-text keyword list
+
+  seo             LocationSeo[]
+  tagPages        TagPage[]
+  residences      Residence[]
+  extraResidences ResidenceLocation[]
+  peakDays        PeakDayLocation[]
+  users           User[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([type])
+  @@index([parentId])
+  @@index([titleEn])
+  @@map("locations")
+}
+
+// Membership in a parent location's result set, independent of the breadcrumb
+// tree. `parent` is the place being searched; `child` contributes its listings.
+model LocationInclude {
+  id       Int      @id @default(autoincrement())
+  parentId Int      @map("parent_id")
+  parent   Location @relation("IncludeParent", fields: [parentId], references: [id], onDelete: Cascade)
+  childId  Int      @map("child_id")
+  child    Location @relation("IncludeChild", fields: [childId], references: [id], onDelete: Cascade)
+
+  @@unique([parentId, childId])
+  @@index([childId])
+  @@map("location_includes")
+}
+
+// Odoo kept three parallel SEO sets per place: the default one plus dedicated
+// بوم‌گردی and هتل variants (x_boomgardi_*, x_hotel_*), each with its own meta,
+// guide text and support phone. `residenceType = null` is the default set.
+model LocationSeo {
+  id            Int            @id @default(autoincrement())
+  locationId    Int            @map("location_id")
+  location      Location       @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  residenceType ResidenceType? @map("residence_type")
+
+  pageTitle       String? @map("page_title")
   metaTitle       String? @map("meta_title")
   metaDescription String? @map("meta_description")
+  metaKeywords    String? @map("meta_keywords")
   contentTitle    String? @map("content_title")
   contentHtml     String? @map("content_html")
-  latitude   Float?
-  longitude  Float?
-  provinceId Int?        @map("province_id")
-  province   Province?   @relation(fields: [provinceId], references: [id])
-  residences Residence[]
-  extraResidences ResidenceCity[]
-  peakDays        PeakDayCity[]
-  users      User[]
-  createdAt  DateTime    @default(now())
-  updatedAt  DateTime    @updatedAt
 
-  @@index([provinceId])
-  @@map("cities")
+  phone          String?
+  showPhone      Boolean @default(false) @map("show_phone")
+  showPhoneFrom  Int?    @map("show_phone_from")
+  showPhoneTo    Int?    @map("show_phone_to")
+  showInHomepage Boolean @default(false) @map("show_in_homepage")
+  homepageIndex  Int?    @map("homepage_index")
+
+  @@unique([locationId, residenceType])
+  @@map("location_seo")
 }
 
 // "روزهای پیک" — global date ranges that switch pricing to the peak rate
 // (legacy Odoo x_peak_days). Managed in admin settings; ranges apply to every
-// residence unless scoped to specific cities.
+// residence unless scoped to specific locations.
 model PeakDay {
-  id        Int      @id @default(autoincrement())
+  id        Int               @id @default(autoincrement())
   name      String
-  startDate DateTime @map("start_date")
-  endDate   DateTime @map("end_date")
-  isActive  Boolean  @default(true) @map("is_active")
-  cities    PeakDayCity[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  startDate DateTime          @map("start_date")
+  endDate   DateTime          @map("end_date")
+  isActive  Boolean           @default(true) @map("is_active")
+  locations PeakDayLocation[]
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
 
   @@index([startDate, endDate])
   @@map("peak_days")
 }
 
-// Optional city scoping — no rows means the peak range is nationwide.
-model PeakDayCity {
-  id        Int     @id @default(autoincrement())
-  peakDayId Int     @map("peak_day_id")
-  peakDay   PeakDay @relation(fields: [peakDayId], references: [id], onDelete: Cascade)
-  cityId    Int     @map("city_id")
-  city      City    @relation(fields: [cityId], references: [id], onDelete: Cascade)
+// Optional location scoping — no rows means the peak range is nationwide.
+model PeakDayLocation {
+  id         Int      @id @default(autoincrement())
+  peakDayId  Int      @map("peak_day_id")
+  peakDay    PeakDay  @relation(fields: [peakDayId], references: [id], onDelete: Cascade)
+  locationId Int      @map("location_id")
+  location   Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
 
-  @@unique([peakDayId, cityId])
-  @@map("peak_day_cities")
+  @@unique([peakDayId, locationId])
+  @@map("peak_day_locations")
 }
 
 // ---------- Users ----------
@@ -210,8 +281,8 @@ model User {
   email              String?
   nationalCode       String?             @map("national_code")
   address            String?
-  cityId             Int?                @map("city_id")
-  city               City?               @relation(fields: [cityId], references: [id])
+  locationId         Int?                @map("location_id")
+  location           Location?           @relation(fields: [locationId], references: [id])
   zip                String?
   fax                String?
   job                String?
@@ -245,7 +316,7 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([cityId])
+  @@index([locationId])
   @@map("users")
 }
 
@@ -358,8 +429,8 @@ model Residence {
   region      String? // coarse marketing region picked in the wizard (e.g. "شمال", "تهران و اطراف")
   rentType    String? @map("rent_type") // whole-place vs per-room etc, wizard step 3
 
-  cityId       Int?    @map("city_id")
-  city         City?   @relation(fields: [cityId], references: [id])
+  locationId   Int?      @map("location_id")
+  location     Location? @relation(fields: [locationId], references: [id])
   neighborhood String?
   address      String?
   // "آدرس در فاکتور" — the full postal address printed on invoices; the
@@ -431,10 +502,10 @@ model Residence {
   // earlier in the default ("پیشنهاد لیدوما") search ordering.
   importance Int @default(0)
 
-  images       ResidenceImage[]
-  distances    ResidenceDistance[]
-  extraCities  ResidenceCity[]
-  rooms        Room[]
+  images         ResidenceImage[]
+  distances      ResidenceDistance[]
+  extraLocations ResidenceLocation[]
+  rooms          Room[]
   amenities    ResidenceAmenity[]
   rules        ResidenceRule[]
   calendarDays CalendarDay[]
@@ -446,7 +517,7 @@ model Residence {
   updatedAt DateTime @updatedAt
 
   @@index([hostId])
-  @@index([cityId])
+  @@index([locationId])
   @@index([state, published])
   @@map("residences")
 }
@@ -466,18 +537,18 @@ model ResidenceDistance {
   @@map("residence_distances")
 }
 
-// "دیگر شهرهای اقامتگاه" — extra cities a residence is listed under, beyond
-// its primary `cityId` (legacy product_public_category_product_template_rel).
-model ResidenceCity {
+// "دیگر شهرهای اقامتگاه" — extra locations a residence is listed under, beyond
+// its primary `locationId` (legacy product_public_category_product_template_rel).
+model ResidenceLocation {
   id          Int       @id @default(autoincrement())
   residenceId Int       @map("residence_id")
   residence   Residence @relation(fields: [residenceId], references: [id], onDelete: Cascade)
-  cityId      Int       @map("city_id")
-  city        City      @relation(fields: [cityId], references: [id], onDelete: Cascade)
+  locationId  Int       @map("location_id")
+  location    Location  @relation(fields: [locationId], references: [id], onDelete: Cascade)
 
-  @@unique([residenceId, cityId])
-  @@index([cityId])
-  @@map("residence_cities")
+  @@unique([residenceId, locationId])
+  @@index([locationId])
+  @@map("residence_locations")
 }
 
 model ResidenceImage {
@@ -707,6 +778,121 @@ model Favourite {
 
   @@unique([userId, residenceId])
   @@map("favourites")
+}
+
+// ---------- SEO tags ----------
+// A tag is a saved combination of residence attributes that gets its own
+// indexed landing page (استخردار، جنگلی، کلبه چوبی، …). Tag pages exist
+// instead of a generic filter URL because each one carries its own curated
+// SEO identity and ranks for its own query.
+//
+// These used to be four disagreeing hardcoded tables in the service layer;
+// the filter itself now lives in the database, imported verbatim from legacy
+// Odoo's website_tags.x_domain.
+
+model SeoTag {
+  id     Int  @id @default(autoincrement())
+  odooId Int? @unique @map("odoo_id")
+  // Query-param key (/search/<city>?<key>=1). IMMUTABLE — ~10k rows in
+  // legacy_redirects already point at these exact keys.
+  key    String @unique
+  // Long display name, e.g. "اجاره ویلا و سوئیت استخردار" (Odoo x_name).
+  name       String
+  // Short chip label used in breadcrumbs/filters, e.g. "استخردار".
+  shortLabel String? @map("short_label")
+  // Internal note describing the combination (Odoo x_desc).
+  description String?
+  // Scopes the tag to one residence type (Odoo x_type: suit | boomgardi).
+  residenceType ResidenceType? @map("residence_type")
+
+  // Price-band tags (لوکس / ارزان) — Odoo x_price_range, previously a
+  // hardcoded 500,000 threshold in the search service.
+  priceMin    Float?  @map("price_min")
+  priceMax    Float?  @map("price_max")
+  // "رزرو آنی" — matches Residence.isFast rather than an attribute.
+  matchIsFast Boolean @default(false) @map("match_is_fast")
+
+  contentTitle String? @map("content_title")
+  contentHtml  String? @map("content_html")
+  imageUrl     String? @map("image_url")
+
+  isActive       Boolean @default(true) @map("is_active")
+  // Surfaced as "جستجوهای مرتبط" on search pages (Odoo x_suggest).
+  isSuggested    Boolean @default(false) @map("is_suggested")
+  showInHomepage Boolean @default(false) @map("show_in_homepage")
+  showInShomal   Boolean @default(false) @map("show_in_shomal")
+  sortOrder      Int     @default(0) @map("sort_order")
+
+  conditions SeoTagCondition[]
+  tagPages   TagPage[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("seo_tags")
+}
+
+// One clause of a tag's filter. Conditions sharing a `groupIndex` are OR-ed
+// together; separate groups are AND-ed. This reproduces Odoo's prefix-notation
+// domains exactly — e.g. `village` is
+//   [type=خانه روستایی, '|', area=روستایی, area=حومه شهر]
+// which becomes group 0 = {type: خانه روستایی} AND
+//               group 1 = {area: روستایی} OR {area: حومه شهر}.
+model SeoTagCondition {
+  id         Int    @id @default(autoincrement())
+  tagId      Int    @map("tag_id")
+  tag        SeoTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  groupIndex Int    @default(0) @map("group_index")
+
+  // Exactly one of these identifies what to match against.
+  amenityKey String? @map("amenity_key") // -> Amenity.key
+  ruleKey    String? @map("rule_key") // -> Rule.key
+  // Categorical value for attributes like نوع اقامتگاه / منطقه اقامتگاه
+  // ("خانه ویلایی", "جنگلی"). Null means a plain has-it check — binary
+  // amenities never store a "ندارد" link.
+  valueName  String? @map("value_name")
+
+  @@index([tagId])
+  @@map("seo_tag_conditions")
+}
+
+// A tag × location landing page. Legacy Odoo `tag_url` held 9,969 of these,
+// 9,967 with hand-written meta that the first migration discarded in favour of
+// generated templates. `tagId = null` is the plain location page.
+//
+// The /tags/… URLs themselves keep 301ing exactly as they do today (see
+// LegacyRedirect); this row supplies the curated SEO for the page they land
+// on, /search/<slug>?<tag>=1.
+model TagPage {
+  id     Int  @id @default(autoincrement())
+  odooId Int? @unique @map("odoo_id")
+  // null = a "تگ مادر": the nationwide tag page (/search?pool=1), with no
+  // location narrowing it. Odoo kept 166 of these in tag_url with no category.
+  locationId Int?      @map("location_id")
+  location   Location? @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  tagId      Int?      @map("tag_id")
+  tag        SeoTag?   @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  // The old indexed path, kept for traceability back to the 301 that serves it.
+  legacyPath String? @unique @map("legacy_path")
+
+  metaTitle       String? @map("meta_title")
+  metaDescription String? @map("meta_description")
+  metaKeywords    String? @map("meta_keywords")
+  contentTitle    String? @map("content_title")
+  contentHtml     String? @map("content_html")
+
+  showInSitemap  Boolean @default(false) @map("show_in_sitemap")
+  isActive       Boolean @default(true) @map("is_active")
+  // Cached at import from Odoo's `residence_count`; refreshed by the admin.
+  residenceCount Int     @default(0) @map("residence_count")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([locationId, tagId])
+  @@index([tagId])
+  @@map("tag_pages")
 }
 
 // ---------- Admin ----------

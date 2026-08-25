@@ -5,49 +5,59 @@ import { generateReference } from "@/utils/reference";
 import { deleteStoredFile } from "@/middleware/upload";
 import { RESIDENCE_CARD_SELECT, toCard } from "@/modules/search/search.service";
 import { publicResidenceId, resolvePublicResidenceId } from "@/lib/publicId";
+import { getActiveSeoTags } from "@/lib/seoTags";
 
 // ---------- Public ----------
 
-// "جستجوهای مرتبط" on a residence page: the SEO tags (see search.service's
-// TAG_TITLES) whose criteria THIS residence matches, targeting its own city
-// (/search/<city>?<tag>=1) — same behavior as the legacy Odoo site.
-// Maps the categorical amenity values (type/area) and binary amenities
-// (pool/jacuzzi) back to their tag keys.
-const RELATED_TAG_RULES: { tag: string; title: string; amenityKey: string; value?: string }[] = [
-  { tag: "villa", title: "اجاره ویلا", amenityKey: "type", value: "خانه ویلایی" },
-  { tag: "apartment", title: "اجاره روزانه خانه و آپارتمان مبله", amenityKey: "type", value: "آپارتمان" },
-  { tag: "cottage", title: "اجاره کلبه چوبی", amenityKey: "type", value: "کلبه" },
-  { tag: "hotelapartment", title: "اجاره هتل آپارتمان", amenityKey: "type", value: "هتل آپارتمان" },
-  { tag: "guesthouse", title: "اجاره مهمان خانه و هاستل", amenityKey: "type", value: "مهمان خانه" },
-  { tag: "forest", title: "اجاره ویلا و سوئیت جنگلی", amenityKey: "area", value: "جنگلی" },
-  { tag: "mountain", title: "اجاره ویلا و سوئیت کوهستانی", amenityKey: "area", value: "کوهستانی" },
-  { tag: "beach", title: "اجاره ویلا و سوئیت ساحلی", amenityKey: "area", value: "ساحلی" },
-  { tag: "village", title: "اجاره خانه روستایی", amenityKey: "area", value: "روستایی" },
-  { tag: "pool", title: "اجاره ویلا و سوئیت استخردار", amenityKey: "pool" },
-  { tag: "jacuzzi", title: "اجاره ویلا و سوئیت جکوزی دار", amenityKey: "jacuzzi" },
-  { tag: "boomgardi", title: "اجاره اقامتگاه بوم گردی", amenityKey: "type", value: "اقامتگاه بوم گردی" },
-];
-
-function buildRelatedTags(
+// "جستجوهای مرتبط" on a residence page: the SEO tags whose criteria THIS
+// residence actually satisfies, pointed at its own location
+// (/search/<slug>?<tag>=1) — same behavior as the legacy Odoo site.
+//
+// This used to be a hand-maintained list that duplicated (and disagreed with)
+// the search service's tag tables. It now evaluates the same stored conditions
+// the search filter uses, so a tag edited in the admin panel stays consistent
+// on both surfaces.
+async function buildRelatedTags(
   amenities: { amenity: { key: string | null }; extraFeatures: unknown }[],
-  city: { name: string; titleEn: string | null } | null
+  location: { name: string; titleEn: string | null } | null
 ) {
-  if (!city?.titleEn) return [];
+  if (!location?.titleEn) return [];
+
   const valueByKey = new Map<string, string>();
   for (const a of amenities) {
     if (a.amenity.key) valueByKey.set(a.amenity.key, String((a.extraFeatures as any)?.value ?? ""));
   }
-  return RELATED_TAG_RULES.filter((r) => {
-    const v = valueByKey.get(r.amenityKey);
-    if (v === undefined) return false;
-    return r.value ? v.includes(r.value) : true;
-  }).map((r) => ({
-    tag: r.tag,
-    cat_title: city.titleEn,
-    cat_name: city.name,
-    // e.g. "اجاره ویلا و سوئیت استخردار در شیراز" — same as the tag pages' H1
-    title: `${r.title} در ${city.name}`,
-  }));
+
+  const tags = await getActiveSeoTags();
+  const matched = tags.filter((tag) => {
+    if (!tag.conditions.length) return false;
+
+    // Same semantics as tagToWhere: OR inside a group, AND across groups.
+    const groups = new Map<number, typeof tag.conditions>();
+    for (const c of tag.conditions) {
+      if (!groups.has(c.groupIndex)) groups.set(c.groupIndex, []);
+      groups.get(c.groupIndex)!.push(c);
+    }
+    return [...groups.values()].every((conds) =>
+      conds.some((c) => {
+        const key = c.amenityKey ?? c.ruleKey;
+        if (!key) return false;
+        const v = valueByKey.get(key);
+        if (v === undefined) return false;
+        return c.valueName ? v.includes(c.valueName) : true;
+      })
+    );
+  });
+
+  return matched
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id)
+    .map((t) => ({
+      tag: t.key,
+      cat_title: location.titleEn,
+      cat_name: location.name,
+      // e.g. "اجاره ویلا و سوئیت استخردار در شیراز" — same as the tag pages' H1
+      title: `${t.name} در ${location.name}`,
+    }));
 }
 
 export async function getResidenceDetail(rawId: number) {
@@ -57,7 +67,7 @@ export async function getResidenceDetail(rawId: number) {
   const residence = await prisma.residence.findFirst({
     where: { id, state: "PUBLISHED", published: true },
     include: {
-      city: { include: { province: true } },
+      location: { include: { parent: true } },
       images: { orderBy: { sortOrder: "asc" } },
       rooms: true,
       amenities: { include: { amenity: { include: { features: true } } } },
@@ -78,7 +88,7 @@ export async function getResidenceDetail(rawId: number) {
   const similar = await prisma.residence.findMany({
     where: {
       id: { not: id },
-      cityId: residence.cityId ?? undefined,
+      locationId: residence.locationId ?? undefined,
       state: "PUBLISHED",
       published: true,
     },
@@ -95,7 +105,7 @@ export async function getResidenceDetail(rawId: number) {
     take: 6,
   });
 
-  const tags = buildRelatedTags(residence.amenities, residence.city);
+  const tags = await buildRelatedTags(residence.amenities, residence.location);
 
   return {
     residence,
@@ -145,7 +155,7 @@ export async function getHostProfile(hostId: number) {
   // most frequent city among their published residences.
   const cityCounts = new Map<string, number>();
   for (const r of residences) {
-    const c = r.city?.name;
+    const c = r.location?.name;
     if (c) cityCounts.set(c, (cityCounts.get(c) ?? 0) + 1);
   }
   const cityName = [...cityCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
@@ -218,7 +228,7 @@ export async function getHostResidenceFull(hostId: number, id: number) {
   const residence = await prisma.residence.findFirst({
     where: { id, hostId },
     include: {
-      city: { include: { province: true } },
+      location: { include: { parent: true } },
       images: { orderBy: { sortOrder: "asc" } },
       rooms: true,
       amenities: { include: { amenity: true } },
@@ -246,7 +256,7 @@ export async function createResidence(
       hostId,
       type: data.type,
       name: data.name || "اقامتگاه بدون نام", // wizard fills the real name in a later step
-      cityId: data.cityId,
+      locationId: data.cityId,
       reference: generateReference("RES-"),
       state: "DRAFT",
       step: 1,

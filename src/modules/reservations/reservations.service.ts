@@ -29,11 +29,11 @@ export const RESERVATION_INCLUDE = {
       hostShareTotalAmount: true,
       hostSharePastNights: true,
       hostShareFutureNights: true,
-      city: {
+      location: {
         select: {
           name: true,
           titleEn: true,
-          province: { select: { name: true } },
+          parent: { select: { name: true, type: true } },
         },
       },
       images: {

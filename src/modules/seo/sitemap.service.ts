@@ -26,11 +26,45 @@ export interface SitemapUrl {
   lastmod?: string;
   changefreq?: string;
   priority?: number;
+  /** Image sitemap extension — only the "images" section sets this. */
+  images?: string[];
 }
 
-export type SectionKey = "static" | "locations" | "tag-pages" | "residences" | "hosts";
+export type SectionKey = "static" | "locations" | "tag-pages" | "residences" | "hosts" | "images";
 
-const SECTION_KEYS: SectionKey[] = ["static", "locations", "tag-pages", "residences", "hosts"];
+const SECTION_KEYS: SectionKey[] = [
+  "static",
+  "locations",
+  "tag-pages",
+  "residences",
+  "hosts",
+  "images",
+];
+
+/**
+ * How an image is addressed in the image sitemap.
+ *
+ * The Liara bucket's bot protection answers 404 to any User-Agent containing
+ * "Mozilla" — which is every image crawler, Googlebot included (verified:
+ * bare curl gets 403, a Googlebot UA gets 404). Submitting bucket URLs would
+ * therefore submit 404s, so they are routed through the Next image optimizer,
+ * which our own server serves and a crawler can actually fetch.
+ *
+ * `direct` exists for after the bucket's UA protection is lifted — it is on
+ * the launch checklist — at which point direct URLs are the better form.
+ */
+function imageUrl(
+  raw: string,
+  mode: string,
+  site: string,
+  width: number
+): string | null {
+  if (!raw) return null;
+  if (mode === "direct") return raw.startsWith("http") ? raw : abs(site, raw);
+  // Relative paths are served by our own origin already.
+  if (!raw.startsWith("http")) return abs(site, raw);
+  return abs(site, `/_next/image?url=${encodeURIComponent(raw)}&w=${width}&q=75`);
+}
 
 export async function getSettings() {
   const existing = await prisma.sitemapSettings.findUnique({ where: { id: 1 } });
@@ -168,6 +202,42 @@ export async function collectSectionUrls(key: SectionKey): Promise<SitemapUrl[]>
       }));
     }
 
+    case "images": {
+      if (!settings.imagesEnabled) return [];
+      // One <url> per listing carrying its gallery, which is the shape Google
+      // expects — an image sitemap annotates the page the images appear on,
+      // it does not list images as standalone URLs.
+      const rows = await prisma.residence.findMany({
+        where: { state: "PUBLISHED", published: true, images: { some: {} } },
+        select: {
+          id: true,
+          reference: true,
+          updatedAt: true,
+          images: {
+            select: { url: true },
+            orderBy: { sortOrder: "asc" },
+            // Google reads up to 1,000 images per page; a listing gallery is
+            // far smaller, and capping keeps the file well inside the 50MB limit.
+            take: 20,
+          },
+        },
+        orderBy: { id: "asc" },
+      });
+      return rows
+        .map((r) => {
+          const images = r.images
+            .map((i) => imageUrl(i.url, settings.imageUrlMode, site, settings.imageOptimizerWidth))
+            .filter((u): u is string => !!u);
+          return {
+            loc: abs(site, `/rentals/${publicResidenceId(r)}`),
+            ...(section.includeLastmod ? { lastmod: isoDate(r.updatedAt) } : {}),
+            ...base,
+            images,
+          };
+        })
+        .filter((u) => u.images.length > 0);
+    }
+
     case "hosts": {
       const rows = await prisma.user.findMany({
         where: {
@@ -240,6 +310,42 @@ async function countListingsPerTagLocation(
   return out;
 }
 
+// The sitemap spec caps a file at 50,000 URLs AND 50MB uncompressed. The URL
+// cap is the one people remember, but the image sitemap hits the byte cap
+// first: 9,555 listings carrying 95,455 images is 22.6MB, so a URL-only
+// chunker would happily emit a single file that keeps growing past 50MB.
+const MAX_BYTES = 45 * 1024 * 1024;
+
+function estimateBytes(u: SitemapUrl) {
+  // <loc>, <lastmod>, <changefreq>, <priority> and the wrapping tags.
+  let n = u.loc.length + 90;
+  for (const img of u.images ?? []) n += img.length + 45;
+  return n;
+}
+
+/**
+ * Splits a section into files, respecting BOTH caps. Both the index builder
+ * and the file server call this, so a chunk always holds the same URLs.
+ */
+function chunkUrls(urls: SitemapUrl[], maxUrls: number): SitemapUrl[][] {
+  const chunks: SitemapUrl[][] = [];
+  let current: SitemapUrl[] = [];
+  let bytes = 0;
+
+  for (const u of urls) {
+    const size = estimateBytes(u);
+    if (current.length > 0 && (current.length >= maxUrls || bytes + size > MAX_BYTES)) {
+      chunks.push(current);
+      current = [];
+      bytes = 0;
+    }
+    current.push(u);
+    bytes += size;
+  }
+  if (current.length) chunks.push(current);
+  return chunks;
+}
+
 /** Section key + chunk count, used to build the sitemap index. */
 export async function getIndexEntries() {
   const settings = await getSettings();
@@ -251,16 +357,10 @@ export async function getIndexEntries() {
     if (!SECTION_KEYS.includes(s.key as SectionKey)) continue;
     const urls = await collectSectionUrls(s.key as SectionKey);
     if (urls.length === 0) continue;
-    const per = Math.max(1, settings.maxUrlsPerFile);
-    const pages = Math.ceil(urls.length / per);
-    for (let p = 1; p <= pages; p++) {
-      entries.push({
-        key: s.key,
-        label: s.label,
-        page: p,
-        count: Math.min(per, urls.length - (p - 1) * per),
-      });
-    }
+    const chunks = chunkUrls(urls, Math.max(1, settings.maxUrlsPerFile));
+    chunks.forEach((chunk, i) => {
+      entries.push({ key: s.key, label: s.label, page: i + 1, count: chunk.length });
+    });
   }
   return entries;
 }
@@ -268,8 +368,8 @@ export async function getIndexEntries() {
 export async function getSectionPage(key: SectionKey, page: number) {
   const settings = await getSettings();
   const urls = await collectSectionUrls(key);
-  const per = Math.max(1, settings.maxUrlsPerFile);
-  return urls.slice((page - 1) * per, page * per);
+  const chunks = chunkUrls(urls, Math.max(1, settings.maxUrlsPerFile));
+  return chunks[page - 1] ?? [];
 }
 
 // ---------------------------------------------------------------- rendering
@@ -284,16 +384,24 @@ function escapeXml(s: string) {
 }
 
 export function renderUrlSet(urls: SitemapUrl[]) {
+  const hasImages = urls.some((u) => u.images?.length);
   const body = urls
     .map((u) => {
       const parts = [`    <loc>${escapeXml(u.loc)}</loc>`];
       if (u.lastmod) parts.push(`    <lastmod>${u.lastmod}</lastmod>`);
       if (u.changefreq) parts.push(`    <changefreq>${u.changefreq}</changefreq>`);
       if (u.priority !== undefined) parts.push(`    <priority>${u.priority.toFixed(1)}</priority>`);
+      for (const img of u.images ?? []) {
+        parts.push(`    <image:image>\n      <image:loc>${escapeXml(img)}</image:loc>\n    </image:image>`);
+      }
       return `  <url>\n${parts.join("\n")}\n  </url>`;
     })
     .join("\n");
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${body}\n</urlset>\n`;
+  // The image namespace is only declared when it is actually used.
+  const ns = hasImages
+    ? ` xmlns:image="http://www.google.com/schemas/sitemap-image/1.1"`
+    : "";
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"${ns}>\n${body}\n</urlset>\n`;
 }
 
 export async function renderIndex() {
@@ -336,8 +444,14 @@ export async function renderRobots() {
   const blocks: string[] = [];
   for (const agent of agents) {
     const lines = [`User-agent: ${agent}`];
-    for (const r of byAgent.get(agent)!) {
-      lines.push(`${r.directive}: ${r.path}`);
+    const group = byAgent.get(agent)!;
+    // Disallow before Allow. Matching is by specificity, not order, but this
+    // is the conventional shape and makes the file far easier to read.
+    for (const r of group.filter((r) => r.directive !== "Allow")) {
+      lines.push(`Disallow: ${r.path}`);
+    }
+    for (const r of group.filter((r) => r.directive === "Allow")) {
+      lines.push(`Allow: ${r.path}`);
     }
     if (settings.crawlDelay && agent === "*") lines.push(`Crawl-delay: ${settings.crawlDelay}`);
     blocks.push(lines.join("\n"));
@@ -350,7 +464,14 @@ export async function renderRobots() {
   if (settings.robotsExtra?.trim()) out += `\n\n${settings.robotsExtra.trim()}`;
 
   if (settings.sitemapEnabled) {
-    out += `\n\nSitemap: ${abs(settings.siteUrl, "/sitemap.xml")}\n`;
+    // The index covers every section, image sitemap included. It is listed
+    // separately as well because Search Console reports image sitemaps
+    // usefully when they are submitted in their own right.
+    const lines = [`Sitemap: ${abs(settings.siteUrl, "/sitemap.xml")}`];
+    if (settings.imagesEnabled) {
+      lines.push(`Sitemap: ${abs(settings.siteUrl, "/sitemaps/images-1.xml")}`);
+    }
+    out += `\n\n${lines.join("\n")}\n`;
   } else {
     out += "\n";
   }
@@ -437,6 +558,7 @@ export async function updateSettings(data: any) {
   for (const f of [
     "siteUrl", "allowIndexing", "sitemapEnabled", "robotsEnabled",
     "maxUrlsPerFile", "robotsExtra", "crawlDelay",
+    "imagesEnabled", "imageUrlMode", "imageOptimizerWidth",
   ] as const) {
     if (data[f] !== undefined) patch[f] = data[f];
   }

@@ -951,6 +951,15 @@ model SitemapSettings {
   robotsExtra String? @map("robots_extra")
   crawlDelay  Int?    @map("crawl_delay")
 
+  // Image sitemap. The Liara bucket answers 404 to any User-Agent containing
+  // "Mozilla" (its bot protection), which is every image crawler — so direct
+  // bucket URLs would be submitted as 404s. Routing them through the Next
+  // image optimizer is the only form Google can actually fetch today. Flip to
+  // direct once the bucket UA protection is lifted (see the launch checklist).
+  imagesEnabled  Boolean @default(true) @map("images_enabled")
+  imageUrlMode   String  @default("optimizer") @map("image_url_mode") // optimizer | direct
+  imageOptimizerWidth Int @default(1080) @map("image_optimizer_width")
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

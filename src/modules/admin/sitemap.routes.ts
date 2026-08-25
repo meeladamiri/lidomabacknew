@@ -32,6 +32,9 @@ router.patch(
         maxUrlsPerFile: z.number().int().min(100).max(50000).optional(),
         robotsExtra: z.union([z.string(), z.null()]).optional(),
         crawlDelay: z.union([z.number().int().min(0).max(120), z.null()]).optional(),
+        imagesEnabled: z.boolean().optional(),
+        imageUrlMode: z.enum(["optimizer", "direct"]).optional(),
+        imageOptimizerWidth: z.number().int().min(320).max(3840).optional(),
       }),
     })
   ),

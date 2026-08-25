@@ -33,20 +33,11 @@ router.get(
       return res.status(404).type("text/plain").send("Not found");
     }
 
-    const m = /^(.+)-(\d+)\.xml$/.exec(req.params.file);
-    if (!m) return res.status(404).type("text/plain").send("Not found");
+    // getFileUrls returns null for any name the index does not advertise, so
+    // an invented file 404s instead of returning a valid but empty urlset.
+    const urls = await sitemap.getFileUrls(req.params.file);
+    if (!urls) return res.status(404).type("text/plain").send("Not found");
 
-    const key = m[1] as sitemap.SectionKey;
-    const page = Number(m[2]);
-
-    // Only serve a chunk the index actually advertises — otherwise
-    // /sitemaps/locations-999.xml would return a valid but empty urlset.
-    const entries = await sitemap.getIndexEntries();
-    if (!entries.some((e) => e.key === key && e.page === page)) {
-      return res.status(404).type("text/plain").send("Not found");
-    }
-
-    const urls = await sitemap.getSectionPage(key, page);
     res.setHeader("Cache-Control", CACHE);
     res.type("application/xml").send(sitemap.renderUrlSet(urls));
   })

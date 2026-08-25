@@ -984,6 +984,14 @@ model SitemapSection {
   // Include <lastmod>. Off for families whose updatedAt is noisy.
   includeLastmod Boolean @default(true) @map("include_lastmod")
 
+  // "cities" section only: a city file mixes three kinds of URL, each with
+  // its own weight (matching shab.ir: city page and tag pages at 1.0/daily,
+  // listings at 0.5/monthly).
+  tagPriority       Float      @default(1.0) @map("tag_priority")
+  tagChangeFreq     ChangeFreq @default(DAILY) @map("tag_change_freq")
+  listingPriority   Float      @default(0.5) @map("listing_priority")
+  listingChangeFreq ChangeFreq @default(MONTHLY) @map("listing_change_freq")
+
   // tag-pages only: honour Odoo x_show_in_sitemap. Odoo flagged just 58 of
   // 9,312 pages, so leaving this on keeps the sitemap hostage to a legacy
   // flag. Turn it off to include every active tag page above the threshold.

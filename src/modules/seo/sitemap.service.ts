@@ -93,8 +93,149 @@ function abs(siteUrl: string, path: string) {
   return `${siteUrl.replace(/\/+$/, "")}${path}`;
 }
 
+// Full W3C datetime rather than a bare date — a crawler can tell two edits on
+// the same day apart, which a date-only lastmod hides.
 function isoDate(d: Date | null | undefined) {
-  return (d ?? new Date()).toISOString().slice(0, 10);
+  return (d ?? new Date()).toISOString();
+}
+
+/**
+ * A city's own sitemap file, following shab.ir: everything about one city in
+ * one file — its search page, its tag pages, and its listings. Search Console
+ * then reports coverage per city instead of per content type, which is how the
+ * ops team actually thinks about the catalogue.
+ *
+ * The file is named from the English slug (sitemap-shiraz.xml). shab uses the
+ * Persian name percent-encoded; the slug is the identifier every one of our
+ * own URLs is already built on, and it avoids encoded filenames entirely.
+ */
+export async function collectCityUrls(slug: string, locationIds: number[]): Promise<SitemapUrl[]> {
+  const [settings, sections] = await Promise.all([getSettings(), getSections()]);
+  const section = sections.find((s) => s.key === "cities");
+  if (!section || !section.isEnabled || !locationIds.length) return [];
+
+  const site = settings.siteUrl;
+  const locations = await prisma.location.findMany({
+    where: { id: { in: locationIds } },
+    select: { id: true, updatedAt: true },
+  });
+  if (!locations.length) return [];
+
+  const urls: SitemapUrl[] = [];
+  const newest = locations
+    .map((l) => l.updatedAt)
+    .sort((a, b) => b.getTime() - a.getTime())[0];
+
+  // 1. the city page itself — one URL even when several rows share the slug
+  urls.push({
+    loc: abs(site, `/search/${slug}`),
+    ...(section.includeLastmod ? { lastmod: isoDate(newest) } : {}),
+    changefreq: section.changeFreq.toLowerCase(),
+    priority: section.priority,
+  });
+
+  // 2. its tag pages — same self-canonical rules as the flat tag section.
+  // De-duplicated by tag key for the same reason as above.
+  const tagPages = await prisma.tagPage.findMany({
+    where: {
+      locationId: { in: locationIds },
+      isActive: true,
+      ...(section.requireSitemapFlag ? { showInSitemap: true } : {}),
+      tag: { isActive: true },
+    },
+    select: { updatedAt: true, tag: { select: { key: true } } },
+    orderBy: { id: "asc" },
+  });
+  const seenTags = new Set<string>();
+  for (const tp of tagPages) {
+    if (!tp.tag || seenTags.has(tp.tag.key)) continue;
+    seenTags.add(tp.tag.key);
+    urls.push({
+      loc: abs(site, `/search/${slug}?${tp.tag.key}=1`),
+      ...(section.includeLastmod ? { lastmod: isoDate(tp.updatedAt) } : {}),
+      changefreq: section.tagChangeFreq.toLowerCase(),
+      priority: section.tagPriority,
+    });
+  }
+
+  // 3. its listings
+  const residences = await prisma.residence.findMany({
+    where: { locationId: { in: locationIds }, state: "PUBLISHED", published: true },
+    select: { id: true, reference: true, updatedAt: true },
+    orderBy: { id: "asc" },
+  });
+  for (const r of residences) {
+    urls.push({
+      loc: abs(site, `/rentals/${publicResidenceId(r)}`),
+      ...(section.includeLastmod ? { lastmod: isoDate(r.updatedAt) } : {}),
+      changefreq: section.listingChangeFreq.toLowerCase(),
+      priority: section.listingPriority,
+    });
+  }
+
+  return urls;
+}
+
+export interface SitemapCity {
+  slug: string;
+  name: string;
+  ids: number[];
+  residenceCount: number;
+}
+
+/**
+ * One entry per SLUG, not per location row.
+ *
+ * Odoo left several places sharing a slug (درود and دورود are both "dorud"),
+ * and /search/dorud already returns the union of both — see
+ * resolveLocationsBySlug. Emitting a file per row would advertise
+ * sitemap-dorud.xml twice and serve only one of the two, silently dropping the
+ * other's listings.
+ */
+export async function getSitemapCities(): Promise<SitemapCity[]> {
+  const sections = await getSections();
+  const section = sections.find((s) => s.key === "cities");
+  if (!section?.isEnabled) return [];
+
+  const rows = await prisma.location.findMany({
+    where: {
+      isPublished: true,
+      isActive: true,
+      canonicalId: null,
+      titleEn: { not: null },
+    },
+    select: {
+      id: true,
+      name: true,
+      titleEn: true,
+      _count: { select: { residences: true } },
+    },
+  });
+
+  const bySlug = new Map<string, SitemapCity>();
+  for (const r of rows) {
+    const slug = r.titleEn!.trim();
+    const key = slug.toLowerCase();
+    const existing = bySlug.get(key);
+    if (existing) {
+      existing.ids.push(r.id);
+      existing.residenceCount += r._count.residences;
+    } else {
+      bySlug.set(key, {
+        slug,
+        name: r.name,
+        ids: [r.id],
+        residenceCount: r._count.residences,
+      });
+    }
+  }
+
+  // Biggest cities first, as shab.ir's index does. Ordering by popularIndex
+  // would put the long tail on top: it is null for most rows, and Postgres
+  // sorts NULLs first under DESC.
+  return [...bySlug.values()]
+    .filter((c) => c.residenceCount >= section.minResidenceCount)
+    .sort((a, b) => b.residenceCount - a.residenceCount || a.slug.localeCompare(b.slug));
 }
 
 /**
@@ -189,8 +330,19 @@ export async function collectSectionUrls(key: SectionKey): Promise<SitemapUrl[]>
     }
 
     case "residences": {
+      // When the per-city files are on, they already carry every listing that
+      // belongs to a city file. This section then covers only the remainder —
+      // listings whose location is missing, unpublished, consolidated, or
+      // below the city threshold — so nothing silently drops out.
+      const citiesOn = sections.find((s) => s.key === "cities")?.isEnabled ?? false;
+      const covered = citiesOn ? (await getSitemapCities()).flatMap((c) => c.ids) : [];
+
       const rows = await prisma.residence.findMany({
-        where: { state: "PUBLISHED", published: true },
+        where: {
+          state: "PUBLISHED",
+          published: true,
+          ...(covered.length ? { OR: [{ locationId: null }, { locationId: { notIn: covered } }] } : {}),
+        },
         select: { id: true, reference: true, updatedAt: true },
         orderBy: { id: "asc" },
       });
@@ -346,23 +498,76 @@ function chunkUrls(urls: SitemapUrl[], maxUrls: number): SitemapUrl[][] {
   return chunks;
 }
 
-/** Section key + chunk count, used to build the sitemap index. */
-export async function getIndexEntries() {
+/**
+ * Every file the index advertises. Two naming schemes coexist:
+ *   sitemap-<slug>.xml   one per city (shab.ir's shape)
+ *   <section>-<n>.xml    the paged sections
+ */
+export interface IndexEntry {
+  file: string;
+  label: string;
+  count: number;
+}
+
+export async function getIndexEntries(): Promise<IndexEntry[]> {
   const settings = await getSettings();
   const sections = await getSections();
-  const entries: { key: string; label: string; page: number; count: number }[] = [];
+  const entries: IndexEntry[] = [];
 
   for (const s of sections) {
     if (!s.isEnabled) continue;
+
+    if (s.key === "cities") {
+      // Counting URLs per city would mean three queries per city (440 cities
+      // = 1,320 round trips). The index only needs the file list, so the
+      // listing count stands in as the size hint.
+      const cities = await getSitemapCities();
+      for (const c of cities) {
+        entries.push({
+          file: `sitemap-${c.slug}.xml`,
+          label: `${s.label} — ${c.name}`,
+          count: c.residenceCount,
+        });
+      }
+      continue;
+    }
+
     if (!SECTION_KEYS.includes(s.key as SectionKey)) continue;
     const urls = await collectSectionUrls(s.key as SectionKey);
     if (urls.length === 0) continue;
     const chunks = chunkUrls(urls, Math.max(1, settings.maxUrlsPerFile));
     chunks.forEach((chunk, i) => {
-      entries.push({ key: s.key, label: s.label, page: i + 1, count: chunk.length });
+      entries.push({ file: `${s.key}-${i + 1}.xml`, label: s.label, count: chunk.length });
     });
   }
   return entries;
+}
+
+/**
+ * Resolves a requested filename to its URLs, or null when the file is not one
+ * the index advertises — so an invented name 404s instead of returning a
+ * valid but empty urlset.
+ */
+export async function getFileUrls(file: string): Promise<SitemapUrl[] | null> {
+  const cityMatch = /^sitemap-(.+)\.xml$/.exec(file);
+  if (cityMatch) {
+    const slug = cityMatch[1];
+    const cities = await getSitemapCities();
+    const city = cities.find((c) => c.slug.toLowerCase() === slug.toLowerCase());
+    if (!city) return null;
+    return collectCityUrls(city.slug, city.ids);
+  }
+
+  const paged = /^(.+)-(\d+)\.xml$/.exec(file);
+  if (!paged) return null;
+  const key = paged[1] as SectionKey;
+  const page = Number(paged[2]);
+  if (!SECTION_KEYS.includes(key)) return null;
+
+  const settings = await getSettings();
+  const urls = await collectSectionUrls(key);
+  const chunks = chunkUrls(urls, Math.max(1, settings.maxUrlsPerFile));
+  return chunks[page - 1] ?? null;
 }
 
 export async function getSectionPage(key: SectionKey, page: number) {
@@ -410,7 +615,7 @@ export async function renderIndex() {
   const today = isoDate(new Date());
   const body = entries
     .map((e) => {
-      const loc = abs(settings.siteUrl, `/sitemaps/${e.key}-${e.page}.xml`);
+      const loc = abs(settings.siteUrl, `/sitemaps/${e.file}`);
       return `  <sitemap>\n    <loc>${escapeXml(loc)}</loc>\n    <lastmod>${today}</lastmod>\n  </sitemap>`;
     })
     .join("\n");
@@ -498,6 +703,35 @@ export async function getSitemapStats() {
 
   for (const s of sections) {
     const key = s.key as SectionKey;
+
+    // The city section is a file set, not a URL list — report the file count
+    // and the listings they carry rather than walking all 440 files.
+    if (s.key === "cities") {
+      const cities = s.isEnabled ? await getSitemapCities() : [];
+      const belowThreshold = s.isEnabled
+        ? await prisma.location.count({
+            where: {
+              isPublished: true,
+              isActive: true,
+              canonicalId: null,
+              titleEn: { not: null },
+              residences: { none: {} },
+            },
+          })
+        : 0;
+      stats.push({
+        key: s.key,
+        label: s.label,
+        isEnabled: s.isEnabled,
+        included: cities.length,
+        excluded:
+          s.minResidenceCount > 0 && belowThreshold > 0
+            ? [{ reason: `بدون اقامتگاه (زیر حد ${s.minResidenceCount})`, count: belowThreshold }]
+            : [],
+      });
+      continue;
+    }
+
     if (!SECTION_KEYS.includes(key)) continue;
     const included = s.isEnabled ? (await collectSectionUrls(key)).length : 0;
     const excluded: { reason: string; count: number }[] = [];

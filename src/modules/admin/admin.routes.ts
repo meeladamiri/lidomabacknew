@@ -41,6 +41,7 @@ import {
 import * as controller from "./admin.controller";
 import * as service from "./admin.service";
 import { buildCatalogRouter } from "./catalogRouter";
+import taxonomyRouter from "./taxonomy.routes";
 
 const router = Router();
 router.use(requireAuth, requireAdmin);
@@ -120,6 +121,9 @@ router.patch(
 router.get("/filter-presets", asyncHandler(controller.listFilterPresets));
 router.post("/filter-presets", validate(filterPresetSchema), asyncHandler(controller.createFilterPreset));
 router.delete("/filter-presets/:id", validate(idParamSchema), asyncHandler(controller.deleteFilterPreset));
+
+// Location tree + SEO tags + curated tag pages.
+router.use(taxonomyRouter);
 
 router.use("/amenities", buildCatalogRouter(service.amenities, upsertAmenitySchema));
 router.use("/rules", buildCatalogRouter(service.rules, upsertRuleSchema));

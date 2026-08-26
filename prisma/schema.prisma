@@ -958,9 +958,9 @@ model SitemapSettings {
   // bucket URLs would be submitted as 404s. Routing them through the Next
   // image optimizer is the only form Google can actually fetch today. Flip to
   // direct once the bucket UA protection is lifted (see the launch checklist).
-  imagesEnabled  Boolean @default(true) @map("images_enabled")
-  imageUrlMode   String  @default("optimizer") @map("image_url_mode") // optimizer | direct
-  imageOptimizerWidth Int @default(1080) @map("image_optimizer_width")
+  imagesEnabled       Boolean @default(true) @map("images_enabled")
+  imageUrlMode        String  @default("optimizer") @map("image_url_mode") // optimizer | direct
+  imageOptimizerWidth Int     @default(1080) @map("image_optimizer_width")
 
   // List every per-city sitemap in robots.txt as its own Sitemap: line, the
   // way shab.ir does (228 lines there, ~440 here). The index already covers
@@ -1076,4 +1076,214 @@ model Faq {
   @@index([locationId])
   @@index([tagId])
   @@map("faqs")
+}
+
+// ---------- Home page ----------
+// The home page was a hand-curated CMS bundle in Odoo (x_homepage_*). None of
+// it was migrated, so pages/index.tsx has been serving `emptyHomePageData`
+// since the cutover. These tables are that CMS, rebuilt.
+//
+// Odoo stored every image as a binary blob inside the database; the migration
+// extracts them and uploads to object storage, so these columns hold URLs.
+
+// Singleton (id pinned to 1): the hero, its per-breakpoint styling, the SEO
+// block, and the two sections Odoo never had (app + video).
+model HomeSettings {
+  id Int @id @default(1)
+
+  // Hero — Odoo kept a separate, shorter title for mobile.
+  heroTitle          String? @map("hero_title")
+  heroSubtitle       String? @map("hero_subtitle")
+  heroTitleMobile    String? @map("hero_title_mobile")
+  heroSubtitleMobile String? @map("hero_subtitle_mobile")
+
+  heroImageUrl       String? @map("hero_image_url")
+  heroImageMobileUrl String? @map("hero_image_mobile_url")
+
+  // Presentation, per breakpoint (Odoo x_pc_* / x_mobile_*).
+  pcTitleColor        String? @map("pc_title_color")
+  pcSubtitleColor     String? @map("pc_subtitle_color")
+  pcTitleSize         Int?    @map("pc_title_size")
+  pcSubtitleSize      Int?    @map("pc_subtitle_size")
+  mobileTitleColor    String? @map("mobile_title_color")
+  mobileSubtitleColor String? @map("mobile_subtitle_color")
+  mobileTitleSize     Int?    @map("mobile_title_size")
+  mobileSubtitleSize  Int?    @map("mobile_subtitle_size")
+  searchBackground    String? @map("search_background")
+  searchBorderColor   String? @map("search_border_color")
+
+  // SEO. h1 is separate from heroTitle: the visible hero wording and the
+  // page's single H1 are not always the same sentence, and the H1 is what
+  // Google reads.
+  h1              String?
+  metaTitle       String? @map("meta_title")
+  metaDescription String? @map("meta_description")
+  metaKeywords    String? @map("meta_keywords")
+
+  // "اپلیکیشن ما" — no Odoo equivalent; new.
+  appEnabled   Boolean @default(false) @map("app_enabled")
+  appTitle     String? @map("app_title")
+  appSubtitle  String? @map("app_subtitle")
+  appImageUrl  String? @map("app_image_url")
+  appBazaarUrl String? @map("app_bazaar_url")
+  appMyketUrl  String? @map("app_myket_url")
+  appSibappUrl String? @map("app_sibapp_url")
+  appDirectUrl String? @map("app_direct_url")
+
+  // Intro video — no Odoo equivalent; new.
+  videoEnabled     Boolean @default(false) @map("video_enabled")
+  videoTitle       String? @map("video_title")
+  videoDescription String? @map("video_description")
+  videoUrl         String? @map("video_url")
+  videoPosterUrl   String? @map("video_poster_url")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("home_settings")
+}
+
+// The twelve title/subtitle pairs Odoo kept as columns on its settings row
+// (x_suggest_title, x_popular_title, …). As rows they can be reordered,
+// switched off, and given the right heading level without a migration.
+model HomeSection {
+  key      String  @id // suggest | popular | selected | taste | fast | discount | economical | boomgardi | hotel | articles | faq | types
+  label    String // admin-facing name
+  title    String?
+  subtitle String?
+
+  // Semantic level of this section's heading. The page has exactly one H1, so
+  // a section heading is an H2 by default; a nested one can be an H3.
+  headingLevel Int @default(2) @map("heading_level")
+
+  isEnabled Boolean @default(true) @map("is_enabled")
+  sortOrder Int     @default(0) @map("sort_order")
+
+  updatedAt DateTime @updatedAt
+
+  @@map("home_sections")
+}
+
+model HomeBanner {
+  id             Int     @id @default(autoincrement())
+  odooId         Int?    @unique @map("odoo_id")
+  name           String
+  link           String?
+  pcImageUrl     String? @map("pc_image_url")
+  mobileImageUrl String? @map("mobile_image_url")
+  // Every decorative-vs-meaningful image needs alt text to be accessible and
+  // indexable; Odoo stored none.
+  alt            String?
+  isActive       Boolean @default(true) @map("is_active")
+  sortOrder      Int     @default(0) @map("sort_order")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("home_banners")
+}
+
+// "مهم نیست اهل کدوم دیاری .." — long-form blocks with their own imagery.
+model HomeDescSection {
+  id             Int     @id @default(autoincrement())
+  odooId         Int?    @unique @map("odoo_id")
+  title          String?
+  contentHtml    String? @map("content_html")
+  pcImageUrl     String? @map("pc_image_url")
+  mobileImageUrl String? @map("mobile_image_url")
+  alt            String?
+  headingLevel   Int     @default(2) @map("heading_level")
+  isActive       Boolean @default(true) @map("is_active")
+  sortOrder      Int     @default(0) @map("sort_order")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("home_desc_sections")
+}
+
+// ویلا / سوئیت / بوم‌گردی / هتل tiles.
+model HomeResidenceType {
+  id           Int     @id @default(autoincrement())
+  odooId       Int?    @unique @map("odoo_id")
+  title        String
+  subtitle     String?
+  imageUrl     String? @map("image_url")
+  alt          String?
+  link         String?
+  showInMobile Boolean @default(true) @map("show_in_mobile")
+  isActive     Boolean @default(true) @map("is_active")
+  sortOrder    Int     @default(0) @map("sort_order")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("home_residence_types")
+}
+
+// "پیشنهادات فصل".
+model HomeSlider {
+  id        Int     @id @default(autoincrement())
+  odooId    Int?    @unique @map("odoo_id")
+  title     String?
+  imageUrl  String? @map("image_url")
+  alt       String?
+  link      String?
+  isActive  Boolean @default(true) @map("is_active")
+  sortOrder Int     @default(0) @map("sort_order")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("home_sliders")
+}
+
+// "چرا ما" — icon + claim.
+model HomeTrustBox {
+  id        Int     @id @default(autoincrement())
+  odooId    Int?    @unique @map("odoo_id")
+  title     String
+  subtitle  String?
+  iconUrl   String? @map("icon_url")
+  alt       String?
+  isActive  Boolean @default(true) @map("is_active")
+  sortOrder Int     @default(0) @map("sort_order")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("home_trust_boxes")
+}
+
+// "مقالات راهنمای سفر" — these link out to the WordPress blog.
+model HomeArticle {
+  id             Int     @id @default(autoincrement())
+  odooId         Int?    @unique @map("odoo_id")
+  title          String
+  link           String?
+  imageUrl       String? @map("image_url")
+  alt            String?
+  authorName     String? @map("author_name")
+  authorImageUrl String? @map("author_image_url")
+  isActive       Boolean @default(true) @map("is_active")
+  sortOrder      Int     @default(0) @map("sort_order")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("home_articles")
+}
+
+// Chips under the search box. No Odoo equivalent; new.
+model HomeSearchSuggestion {
+  id        Int     @id @default(autoincrement())
+  label     String
+  href      String
+  isActive  Boolean @default(true) @map("is_active")
+  sortOrder Int     @default(0) @map("sort_order")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("home_search_suggestions")
 }

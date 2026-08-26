@@ -43,6 +43,7 @@ import * as service from "./admin.service";
 import { buildCatalogRouter } from "./catalogRouter";
 import taxonomyRouter from "./taxonomy.routes";
 import sitemapRouter from "./sitemap.routes";
+import faqRouter from "./faq.routes";
 
 const router = Router();
 router.use(requireAuth, requireAdmin);
@@ -128,6 +129,9 @@ router.use(taxonomyRouter);
 
 // Sitemap + robots.txt configuration.
 router.use(sitemapRouter);
+
+// "سوالات متداول".
+router.use(faqRouter);
 
 router.use("/amenities", buildCatalogRouter(service.amenities, upsertAmenitySchema));
 router.use("/rules", buildCatalogRouter(service.rules, upsertRuleSchema));

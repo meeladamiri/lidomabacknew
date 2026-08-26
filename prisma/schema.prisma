@@ -173,6 +173,7 @@ model Location {
 
   seo             LocationSeo[]
   tagPages        TagPage[]
+  faqs            Faq[]
   residences      Residence[]
   extraResidences ResidenceLocation[]
   peakDays        PeakDayLocation[]
@@ -825,6 +826,7 @@ model SeoTag {
 
   conditions SeoTagCondition[]
   tagPages   TagPage[]
+  faqs       Faq[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1027,4 +1029,51 @@ model RobotsRule {
 
   @@index([userAgent])
   @@map("robots_rules")
+}
+
+// ---------- FAQ ----------
+
+// Which pages a question appears on. Narrower scopes win: a question written
+// for شیراز sits above the generic search-page set on that page.
+enum FaqScope {
+  GLOBAL // every page that renders FAQs
+  SEARCH // all /search pages
+  LOCATION // one location's search page (and its tag pages)
+  TAG // one tag, on every location
+  TAG_LOCATION // one tag on one location
+  RESIDENCE // residence detail pages
+  PAGE // one specific path, e.g. /rules
+}
+
+// "سوالات متداول" — editable in the admin panel and rendered as FAQPage
+// JSON-LD, which is why the answers matter beyond the page itself.
+//
+// These were four hardcoded strings interpolated with the place name. They are
+// now rows, and the interpolation survives as placeholders — {location},
+// {tag}, {site} — so one GLOBAL question still reads naturally on all 440 city
+// pages instead of needing 440 copies.
+model Faq {
+  id    Int      @id @default(autoincrement())
+  scope FaqScope @default(SEARCH)
+
+  // Set for the scopes that name a target; null otherwise.
+  locationId Int?      @map("location_id")
+  location   Location? @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  tagId      Int?      @map("tag_id")
+  tag        SeoTag?   @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  path       String? // PAGE scope
+
+  question String
+  answer   String
+
+  isActive  Boolean @default(true) @map("is_active")
+  sortOrder Int     @default(0) @map("sort_order")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([scope])
+  @@index([locationId])
+  @@index([tagId])
+  @@map("faqs")
 }

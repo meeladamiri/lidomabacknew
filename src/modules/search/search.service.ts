@@ -4,6 +4,7 @@ import { publicResidenceId } from "@/lib/publicId";
 import { RESIDENCE_TYPE_SLUG } from "@/lib/residenceType";
 import { resolveLocationBySlug, expandSlugToLocationIds } from "@/lib/location";
 import { getActiveSeoTags, findSeoTagByKey, tagToWhere, featureToWhere } from "@/lib/seoTags";
+import { getFaqsForPage } from "@/modules/seo/faq.service";
 import type { ResidenceType } from "@/generated/prisma/client";
 
 export async function getPopularDestinations() {
@@ -232,37 +233,23 @@ export async function getSearchPageData(slug: string, tags?: string[]) {
   const placeName = place?.name ?? "";
   const placeSlug = place?.titleEn ?? q;
 
-  const faqs = placeName
-    ? [
-        {
-          id: 1,
-          question: `چطور در ${placeName} اقامتگاه رزرو کنم؟`,
-          answer: `کافیه از بین اقامتگاه‌های ${placeName} در همین صفحه، مورد دلخواهتون رو انتخاب کنید، وارد صفحه‌ی اقامتگاه بشید و تاریخ ورود و خروج رو مشخص و درخواست رزرو رو رایگان ثبت کنید. تیم پشتیبانی لیدوماتریپ هم به‌صورت ۲۴ ساعته پاسخگوی شماست.`,
-        },
-        {
-          id: 2,
-          question: `قیمت اجاره اقامتگاه در ${placeName} شبی چنده؟`,
-          answer: `قیمت بر اساس نوع اقامتگاه، ظرفیت، امکانات و فصل سفر متفاوته. با فیلتر «قیمت برای یک شب» در همین صفحه می‌تونید بازه‌ی قیمتی موردنظرتون رو مشخص کنید و نتایج رو مقایسه کنید.`,
-        },
-        {
-          id: 3,
-          question: `آیا رزرو در لیدوماتریپ قطعیه و ضمانت داره؟`,
-          answer: `بله — لیدوماتریپ صحت اطلاعات اقامتگاه، تحویل به‌موقع و نظافت رو تضمین می‌کنه و برای هر رزرو فاکتور رسمی صادر می‌شه. در صورت بروز هر مشکلی، پشتیبانی ۲۴ ساعته پیگیری می‌کنه.`,
-        },
-        {
-          id: 4,
-          question: `امکان کنسل‌کردن رزرو در ${placeName} هست؟`,
-          answer: `بله، طبق سیاست کنسلی هر اقامتگاه (که در صفحه‌ی همون اقامتگاه ذکر شده) می‌تونید رزرو رو لغو کنید. جزئیات کامل در صفحه‌ی «قوانین کنسلی رزرو» سایت اومده.`,
-        },
-      ]
-    : [];
-
   // Tag×location pages (?pool=1 etc.) carry their own SEO identity. The first
   // recognized tag wins, matching the old behaviour.
   const activeTags = await getActiveSeoTags();
   const tagKey = (tags ?? []).find((t) => activeTags.some((x) => x.key === t)) ?? null;
   const tag = tagKey ? await findSeoTagByKey(tagKey) : null;
   const tagTitle = tag?.name ?? null;
+
+  // "سوالات متداول" now come from the faqs table (see modules/seo/faq.service).
+  // They used to be four strings built inline here; the seeded rows carry the
+  // same text with {location} where the place name was interpolated.
+  const faqs = await getFaqsForPage({
+    locationId: place?.id ?? null,
+    locationName: place?.name ?? null,
+    tagId: tag?.id ?? null,
+    tagName: tag?.name ?? null,
+    kind: "search",
+  });
 
   // The default (no residence type) SEO set for this place. The بوم‌گردی and
   // هتل variants live alongside it and are selected by the type-scoped pages.
@@ -349,7 +336,10 @@ export async function getSearchPageData(slug: string, tags?: string[]) {
           title: t.name,
         }))
       : suggested.map((t) => ({ tag: t.key, cat_title: null, cat_name: null, title: t.name })),
-    faqs: tagTitle ? [] : faqs,
+    // A tag page used to return no FAQs at all. It now gets whatever is
+    // scoped to it — TAG / TAG_LOCATION questions — and the generic search
+    // set is filtered out by the placeholder rule when it does not fit.
+    faqs,
   };
 }
 

@@ -70,10 +70,15 @@ export async function getFaqsForPage(ctx: FaqPageContext) {
   if (ctx.kind === "residence") scopes.push("RESIDENCE");
 
   const where: any[] = [{ scope: { in: scopes } }];
-  if (ctx.locationId) where.push({ scope: "LOCATION", locationId: ctx.locationId });
+  if (ctx.locationId)
+    where.push({ scope: "LOCATION", locationId: ctx.locationId });
   if (ctx.tagId) where.push({ scope: "TAG", tagId: ctx.tagId });
   if (ctx.locationId && ctx.tagId) {
-    where.push({ scope: "TAG_LOCATION", locationId: ctx.locationId, tagId: ctx.tagId });
+    where.push({
+      scope: "TAG_LOCATION",
+      locationId: ctx.locationId,
+      tagId: ctx.tagId,
+    });
   }
   if (ctx.path) where.push({ scope: "PAGE", path: ctx.path });
 
@@ -87,7 +92,7 @@ export async function getFaqsForPage(ctx: FaqPageContext) {
       (a, b) =>
         SCOPE_RANK[a.scope] - SCOPE_RANK[b.scope] ||
         a.sortOrder - b.sortOrder ||
-        a.id - b.id
+        a.id - b.id,
     )
     .map((f) => {
       const question = interpolate(f.question, ctx);
@@ -104,12 +109,16 @@ export async function listFaqs(params: {
   scope?: FaqScope;
   locationId?: number;
   tagId?: number;
+  path?: string;
   q?: string;
 }) {
   const where: any = {};
   if (params.scope) where.scope = params.scope;
   if (params.locationId) where.locationId = params.locationId;
   if (params.tagId) where.tagId = params.tagId;
+  // PAGE-scoped rows are keyed by path; without this a caller asking for the
+  // home page ("/") gets every PAGE question on the site.
+  if (params.path) where.path = params.path;
   if (params.q?.trim()) {
     const q = params.q.trim();
     where.OR = [
@@ -134,7 +143,12 @@ export async function listFaqs(params: {
  * is the "filter by page" the admin screen leads with, because the raw rows do
  * not tell you what any given page ends up showing.
  */
-export async function previewFaqsForPage(params: { slug?: string; tagKey?: string; kind?: string; path?: string }) {
+export async function previewFaqsForPage(params: {
+  slug?: string;
+  tagKey?: string;
+  kind?: string;
+  path?: string;
+}) {
   let locationId: number | null = null;
   let locationName: string | null = null;
   let tagId: number | null = null;
@@ -147,7 +161,9 @@ export async function previewFaqsForPage(params: { slug?: string; tagKey?: strin
     locationName = loc?.name ?? null;
   }
   if (params.tagKey) {
-    const tag = await prisma.seoTag.findUnique({ where: { key: params.tagKey } });
+    const tag = await prisma.seoTag.findUnique({
+      where: { key: params.tagKey },
+    });
     tagId = tag?.id ?? null;
     tagName = tag?.name ?? null;
   }
@@ -163,7 +179,14 @@ export async function previewFaqsForPage(params: { slug?: string; tagKey?: strin
   });
 
   return {
-    context: { locationId, locationName, tagId, tagName, kind, path: params.path ?? null },
+    context: {
+      locationId,
+      locationName,
+      tagId,
+      tagName,
+      kind,
+      path: params.path ?? null,
+    },
     faqs,
   };
 }
@@ -177,7 +200,9 @@ function assertScopeTarget(data: any) {
     throw AppError.badRequest("برای این محدوده باید یک تگ انتخاب کنی.");
   }
   if (scope === "PAGE" && !data.path?.trim()) {
-    throw AppError.badRequest("برای محدوده‌ی «یک صفحه‌ی مشخص» باید مسیر صفحه رو بنویسی.");
+    throw AppError.badRequest(
+      "برای محدوده‌ی «یک صفحه‌ی مشخص» باید مسیر صفحه رو بنویسی.",
+    );
   }
 }
 
@@ -217,7 +242,9 @@ export async function deleteFaq(id: number) {
 
 export async function reorderFaqs(ids: number[]) {
   await Promise.all(
-    ids.map((id, i) => prisma.faq.update({ where: { id }, data: { sortOrder: i + 1 } }))
+    ids.map((id, i) =>
+      prisma.faq.update({ where: { id }, data: { sortOrder: i + 1 } }),
+    ),
   );
   return { ok: true };
 }

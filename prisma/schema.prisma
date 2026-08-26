@@ -1189,6 +1189,9 @@ model HomeDescSection {
   odooId         Int?    @unique @map("odoo_id")
   title          String?
   contentHtml    String? @map("content_html")
+  // Aparat (or any embeddable) video shown beside this block. Was a hardcoded
+  // <iframe> in the page with no panel field pointing at it.
+  videoUrl       String? @map("video_url")
   pcImageUrl     String? @map("pc_image_url")
   mobileImageUrl String? @map("mobile_image_url")
   alt            String?
@@ -1286,4 +1289,83 @@ model HomeSearchSuggestion {
   updatedAt DateTime @updatedAt
 
   @@map("home_search_suggestions")
+}
+
+// ---------------------------------------------------------------------------
+// Home page sliders ("رِیل"‌ها)
+//
+// The home page's listing rails used to be hardcoded in home.service.ts — the
+// admin panel could rename a section but not choose which listings it showed
+// or add a new one. These two tables move that decision into the panel.
+//
+// A RESIDENCE rail names a source (a city slug, a curated SEO tag, a residence
+// type, or a flag) and the backend fills it with published listings ordered by
+// `Residence.importance` — the priority the listings team already maintains —
+// so the rail follows the same ordering rule as everything else.
+//
+// A DESTINATION rail carries its own tiles instead: a city or tag with its own
+// image and link, edited by hand.
+// ---------------------------------------------------------------------------
+
+enum HomeRailKind {
+  RESIDENCE
+  DESTINATION
+}
+
+enum HomeRailSource {
+  CITY // sourceSlug is a location slug; expands through location_includes
+  TAG // sourceSlug is a SeoTag.key
+  TYPE // sourceSlug is a ResidenceType value (VILLA / SUIT / BOOMGARDI / HOTEL)
+  FAST // instant-booking listings
+  OFFER // discounted listings
+  TOP_RATED // highest rated with at least one review
+  ALL // no filter; importance order only
+}
+
+model HomeRail {
+  id           Int          @id @default(autoincrement())
+  kind         HomeRailKind @default(RESIDENCE)
+  title        String?
+  subtitle     String?
+  // The page has exactly one H1 (the hero), so a rail heading is H2 or deeper.
+  headingLevel Int          @default(2) @map("heading_level")
+
+  // RESIDENCE rails only.
+  sourceType HomeRailSource? @map("source_type")
+  sourceSlug String?         @map("source_slug")
+  take       Int             @default(15)
+
+  // "مشاهده همه" target. Derived from the source when left empty.
+  linkTo String? @map("link_to")
+
+  isEnabled Boolean @default(true) @map("is_enabled")
+  sortOrder Int     @default(0) @map("sort_order")
+
+  items HomeRailItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("home_rails")
+}
+
+// Tiles of a DESTINATION rail.
+model HomeRailItem {
+  id       Int      @id @default(autoincrement())
+  railId   Int      @map("rail_id")
+  rail     HomeRail @relation(fields: [railId], references: [id], onDelete: Cascade)
+  title    String
+  subtitle String?
+  imageUrl String?  @map("image_url")
+  alt      String?
+  link     String?
+
+  isActive  Boolean @default(true) @map("is_active")
+  sortOrder Int     @default(0) @map("sort_order")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([railId])
+  @@map("home_rail_items")
 }

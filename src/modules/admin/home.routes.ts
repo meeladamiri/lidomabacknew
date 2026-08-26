@@ -21,18 +21,32 @@ const nullableNumber = z.union([z.number(), z.null()]).optional();
 router.get(
   "/home",
   asyncHandler(async (_req, res) => {
-    const [settings, sections, banners, descSections, types, sliders, trustBoxes, articles, suggestions] =
-      await Promise.all([
-        prisma.homeSettings.findUnique({ where: { id: 1 } }),
-        prisma.homeSection.findMany({ orderBy: { sortOrder: "asc" } }),
-        prisma.homeBanner.findMany({ orderBy: { sortOrder: "asc" } }),
-        prisma.homeDescSection.findMany({ orderBy: { sortOrder: "asc" } }),
-        prisma.homeResidenceType.findMany({ orderBy: { sortOrder: "asc" } }),
-        prisma.homeSlider.findMany({ orderBy: { sortOrder: "asc" } }),
-        prisma.homeTrustBox.findMany({ orderBy: { sortOrder: "asc" } }),
-        prisma.homeArticle.findMany({ orderBy: { sortOrder: "asc" } }),
-        prisma.homeSearchSuggestion.findMany({ orderBy: { sortOrder: "asc" } }),
-      ]);
+    const [
+      settings,
+      sections,
+      banners,
+      descSections,
+      types,
+      sliders,
+      trustBoxes,
+      articles,
+      suggestions,
+      rails,
+    ] = await Promise.all([
+      prisma.homeSettings.findUnique({ where: { id: 1 } }),
+      prisma.homeSection.findMany({ orderBy: { sortOrder: "asc" } }),
+      prisma.homeBanner.findMany({ orderBy: { sortOrder: "asc" } }),
+      prisma.homeDescSection.findMany({ orderBy: { sortOrder: "asc" } }),
+      prisma.homeResidenceType.findMany({ orderBy: { sortOrder: "asc" } }),
+      prisma.homeSlider.findMany({ orderBy: { sortOrder: "asc" } }),
+      prisma.homeTrustBox.findMany({ orderBy: { sortOrder: "asc" } }),
+      prisma.homeArticle.findMany({ orderBy: { sortOrder: "asc" } }),
+      prisma.homeSearchSuggestion.findMany({ orderBy: { sortOrder: "asc" } }),
+      prisma.homeRail.findMany({
+        orderBy: { sortOrder: "asc" },
+        include: { items: { orderBy: { sortOrder: "asc" } } },
+      }),
+    ]);
     return ok(res, {
       settings,
       sections,
@@ -43,9 +57,87 @@ router.get(
       trustBoxes,
       articles,
       suggestions,
+      rails,
     });
-  })
+  }),
 );
+
+/**
+ * The pick-lists the rail editor needs: which cities and tags exist. Without
+ * these an editor has to know slugs by heart, and a typo silently produces an
+ * empty rail.
+ */
+router.get(
+  "/home/rail-sources",
+  asyncHandler(async (_req, res) => {
+    const [cities, tags] = await Promise.all([
+      prisma.location.findMany({
+        where: { isPublished: true, titleEn: { not: null } },
+        select: {
+          name: true,
+          titleEn: true,
+          type: true,
+          _count: { select: { residences: true } },
+        },
+        orderBy: [{ residences: { _count: "desc" } }],
+        take: 300,
+      }),
+      prisma.seoTag.findMany({
+        where: { isActive: true },
+        select: { key: true, name: true },
+        orderBy: { key: "asc" },
+      }),
+    ]);
+    return ok(res, {
+      cities: cities.map((c) => ({
+        slug: c.titleEn,
+        name: c.name,
+        type: c.type,
+        count: c._count.residences,
+      })),
+      tags: tags.map((t) => ({ slug: t.key, name: t.name || t.key })),
+      types: [
+        { slug: "VILLA", name: "ویلا" },
+        { slug: "SUIT", name: "سوئیت و آپارتمان" },
+        { slug: "BOOMGARDI", name: "بوم‌گردی" },
+        { slug: "HOTEL", name: "هتل" },
+      ],
+    });
+  }),
+);
+
+const railSchema = z.object({
+  kind: z.enum(["RESIDENCE", "DESTINATION"]).optional(),
+  title: nullableString,
+  subtitle: nullableString,
+  headingLevel: z.number().int().min(2).max(4).optional(),
+  sourceType: z
+    .union([
+      z.enum(["CITY", "TAG", "TYPE", "FAST", "OFFER", "TOP_RATED", "ALL"]),
+      z.null(),
+    ])
+    .optional(),
+  sourceSlug: nullableString,
+  take: z.number().int().min(1).max(30).optional(),
+  linkTo: nullableString,
+  isEnabled: z.boolean().optional(),
+  sortOrder: z.number().int().optional(),
+});
+
+router.use("/home/rails", collection(prisma.homeRail, railSchema));
+
+const railItemSchema = z.object({
+  railId: z.number().int().optional(),
+  title: z.string().min(1).optional(),
+  subtitle: nullableString,
+  imageUrl: nullableString,
+  alt: nullableString,
+  link: nullableString,
+  isActive: z.boolean().optional(),
+  sortOrder: z.number().int().optional(),
+});
+
+router.use("/home/rail-items", collection(prisma.homeRailItem, railItemSchema));
 
 router.patch(
   "/home/settings",
@@ -86,7 +178,7 @@ router.patch(
         videoUrl: nullableString,
         videoPosterUrl: nullableString,
       }),
-    })
+    }),
   ),
   asyncHandler(async (req, res) => {
     const row = await prisma.homeSettings.upsert({
@@ -96,7 +188,7 @@ router.patch(
     });
     invalidateHomeCache();
     return ok(res, row);
-  })
+  }),
 );
 
 router.patch(
@@ -111,7 +203,7 @@ router.patch(
         isEnabled: z.boolean().optional(),
         sortOrder: z.number().int().optional(),
       }),
-    })
+    }),
   ),
   asyncHandler(async (req, res) => {
     const row = await prisma.homeSection.update({
@@ -120,7 +212,7 @@ router.patch(
     });
     invalidateHomeCache();
     return ok(res, row);
-  })
+  }),
 );
 
 /**
@@ -136,17 +228,20 @@ function collection(model: any, schema: z.ZodTypeAny) {
       const row = await model.create({ data: req.body });
       invalidateHomeCache();
       return ok(res, row, 201);
-    })
+    }),
   );
   r.patch(
     "/:id",
     validate(idParamSchema),
     validate(z.object({ body: schema })),
     asyncHandler(async (req, res) => {
-      const row = await model.update({ where: { id: Number(req.params.id) }, data: req.body });
+      const row = await model.update({
+        where: { id: Number(req.params.id) },
+        data: req.body,
+      });
       invalidateHomeCache();
       return ok(res, row);
-    })
+    }),
   );
   r.delete(
     "/:id",
@@ -155,7 +250,7 @@ function collection(model: any, schema: z.ZodTypeAny) {
       const row = await model.delete({ where: { id: Number(req.params.id) } });
       invalidateHomeCache();
       return ok(res, row);
-    })
+    }),
   );
   return r;
 }
@@ -176,8 +271,8 @@ router.use(
       pcImageUrl: nullableString,
       mobileImageUrl: nullableString,
       ...common,
-    })
-  )
+    }),
+  ),
 );
 
 router.use(
@@ -187,12 +282,13 @@ router.use(
     z.object({
       title: nullableString,
       contentHtml: nullableString,
+      videoUrl: nullableString,
       pcImageUrl: nullableString,
       mobileImageUrl: nullableString,
       headingLevel: z.number().int().min(2).max(4).optional(),
       ...common,
-    })
-  )
+    }),
+  ),
 );
 
 router.use(
@@ -206,8 +302,8 @@ router.use(
       link: nullableString,
       showInMobile: z.boolean().optional(),
       ...common,
-    })
-  )
+    }),
+  ),
 );
 
 router.use(
@@ -219,8 +315,8 @@ router.use(
       imageUrl: nullableString,
       link: nullableString,
       ...common,
-    })
-  )
+    }),
+  ),
 );
 
 router.use(
@@ -232,8 +328,8 @@ router.use(
       subtitle: nullableString,
       iconUrl: nullableString,
       ...common,
-    })
-  )
+    }),
+  ),
 );
 
 router.use(
@@ -247,8 +343,8 @@ router.use(
       authorName: nullableString,
       authorImageUrl: nullableString,
       ...common,
-    })
-  )
+    }),
+  ),
 );
 
 router.use(
@@ -260,8 +356,8 @@ router.use(
       href: z.string().min(1).optional(),
       isActive: z.boolean().optional(),
       sortOrder: z.number().int().optional(),
-    })
-  )
+    }),
+  ),
 );
 
 export default router;

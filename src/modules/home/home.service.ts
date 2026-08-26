@@ -25,7 +25,10 @@ export function invalidateHomeCache() {
   cache = null;
 }
 
-const PUBLISHED: Prisma.ResidenceWhereInput = { state: "PUBLISHED", published: true };
+const PUBLISHED: Prisma.ResidenceWhereInput = {
+  state: "PUBLISHED",
+  published: true,
+};
 
 /**
  * Turns a curated link into the URL it actually resolves to.
@@ -64,7 +67,11 @@ async function resolveInternalLink(raw: string | null): Promise<string | null> {
 }
 
 /** A rail of listing cards. */
-async function rail(where: Prisma.ResidenceWhereInput, take: number, orderBy?: Prisma.ResidenceOrderByWithRelationInput[]) {
+async function rail(
+  where: Prisma.ResidenceWhereInput,
+  take: number,
+  orderBy?: Prisma.ResidenceOrderByWithRelationInput[],
+) {
   const rows = await prisma.residence.findMany({
     where: { ...PUBLISHED, ...where },
     select: RESIDENCE_CARD_SELECT,
@@ -82,6 +89,101 @@ async function railByTag(key: string, take: number) {
   return rail(clauses.length ? { AND: clauses } : {}, take);
 }
 
+/**
+ * Turns a configured rail's source into the listings it shows.
+ *
+ * Everything falls through to `rail()`, whose default ordering is
+ * `importance desc` — the listing priority the team already maintains — so a
+ * rail always leads with the same listings the rest of the site prioritises.
+ */
+async function residencesForSource(
+  sourceType: string | null,
+  sourceSlug: string | null,
+  take: number,
+) {
+  switch (sourceType) {
+    case "CITY": {
+      if (!sourceSlug) return [];
+      // Expands through location_includes, so "شمال" picks up its sub-cities.
+      const ids = await expandSlugToLocationIds(sourceSlug);
+      return ids?.length ? rail({ locationId: { in: ids } }, take) : [];
+    }
+    case "TAG":
+      return sourceSlug ? railByTag(sourceSlug, take) : [];
+    case "TYPE":
+      return sourceSlug ? rail({ type: sourceSlug as any }, take) : [];
+    case "FAST":
+      return rail({ isFast: true }, take);
+    case "OFFER":
+      return rail({ isOffer: true }, take);
+    case "TOP_RATED":
+      return rail({ reviewsCount: { gt: 0 } }, take, [
+        { averageRating: "desc" },
+        { reviewsCount: "desc" },
+      ]);
+    case "ALL":
+      return rail({}, take);
+    default:
+      return [];
+  }
+}
+
+/** The "مشاهده همه" target when the editor has not set one explicitly. */
+function defaultRailLink(sourceType: string | null, sourceSlug: string | null) {
+  if (!sourceSlug) {
+    if (sourceType === "FAST") return "/search?fast=1";
+    if (sourceType === "OFFER") return "/search?discounted=true";
+    return "/search";
+  }
+  if (sourceType === "CITY") return `/search/${sourceSlug}`;
+  if (sourceType === "TAG") return `/search?${sourceSlug}=1`;
+  if (sourceType === "TYPE") return `/search?${sourceSlug.toLowerCase()}=1`;
+  return "/search";
+}
+
+/** The admin-configured sliders, resolved to what the page renders. */
+async function buildRails() {
+  const rows = await prisma.homeRail.findMany({
+    where: { isEnabled: true },
+    orderBy: { sortOrder: "asc" },
+    include: {
+      items: { where: { isActive: true }, orderBy: { sortOrder: "asc" } },
+    },
+  });
+
+  return Promise.all(
+    rows.map(async (r) => ({
+      id: r.id,
+      kind: r.kind,
+      title: r.title,
+      subtitle: r.subtitle,
+      heading_level: r.headingLevel,
+      link_to:
+        (await resolveInternalLink(r.linkTo)) ??
+        (r.kind === "RESIDENCE"
+          ? defaultRailLink(r.sourceType, r.sourceSlug)
+          : null),
+      residences:
+        r.kind === "RESIDENCE"
+          ? await residencesForSource(r.sourceType, r.sourceSlug, r.take)
+          : [],
+      items:
+        r.kind === "DESTINATION"
+          ? await Promise.all(
+              r.items.map(async (i) => ({
+                id: i.id,
+                title: i.title,
+                subtitle: i.subtitle,
+                image: i.imageUrl,
+                alt: i.alt ?? i.title,
+                link: await resolveInternalLink(i.link),
+              })),
+            )
+          : [],
+    })),
+  );
+}
+
 export async function getHomePageData() {
   if (cache && Date.now() - cache.at < TTL_MS) return cache.data;
 
@@ -97,40 +199,76 @@ export async function getHomePageData() {
     suggestions,
   ] = await Promise.all([
     prisma.homeSettings.findUnique({ where: { id: 1 } }),
-    prisma.homeSection.findMany({ where: { isEnabled: true }, orderBy: { sortOrder: "asc" } }),
-    prisma.homeBanner.findMany({ where: { isActive: true }, orderBy: { sortOrder: "asc" } }),
-    prisma.homeDescSection.findMany({ where: { isActive: true }, orderBy: { sortOrder: "asc" } }),
-    prisma.homeResidenceType.findMany({ where: { isActive: true }, orderBy: { sortOrder: "asc" } }),
-    prisma.homeSlider.findMany({ where: { isActive: true }, orderBy: { sortOrder: "asc" } }),
-    prisma.homeTrustBox.findMany({ where: { isActive: true }, orderBy: { sortOrder: "asc" } }),
-    prisma.homeArticle.findMany({ where: { isActive: true }, orderBy: { sortOrder: "asc" } }),
-    prisma.homeSearchSuggestion.findMany({ where: { isActive: true }, orderBy: { sortOrder: "asc" } }),
+    prisma.homeSection.findMany({
+      where: { isEnabled: true },
+      orderBy: { sortOrder: "asc" },
+    }),
+    prisma.homeBanner.findMany({
+      where: { isActive: true },
+      orderBy: { sortOrder: "asc" },
+    }),
+    prisma.homeDescSection.findMany({
+      where: { isActive: true },
+      orderBy: { sortOrder: "asc" },
+    }),
+    prisma.homeResidenceType.findMany({
+      where: { isActive: true },
+      orderBy: { sortOrder: "asc" },
+    }),
+    prisma.homeSlider.findMany({
+      where: { isActive: true },
+      orderBy: { sortOrder: "asc" },
+    }),
+    prisma.homeTrustBox.findMany({
+      where: { isActive: true },
+      orderBy: { sortOrder: "asc" },
+    }),
+    prisma.homeArticle.findMany({
+      where: { isActive: true },
+      orderBy: { sortOrder: "asc" },
+    }),
+    prisma.homeSearchSuggestion.findMany({
+      where: { isActive: true },
+      orderBy: { sortOrder: "asc" },
+    }),
   ]);
 
-  const [selected, taste, fast, discounted, boomgardi, hotels, economical, populars, faqs] =
-    await Promise.all([
-      rail({ reviewsCount: { gt: 0 } }, 15, [{ averageRating: "desc" }, { reviewsCount: "desc" }]),
-      rail({}, 15),
-      rail({ isFast: true }, 15),
-      rail({ isOffer: true }, 15),
-      rail({ type: "BOOMGARDI" }, 15),
-      rail({ type: "HOTEL" }, 15),
-      railByTag("economic", 15),
-      // "مقصدهای محبوب" — cities, not listings.
-      prisma.location.findMany({
-        where: { type: "CITY", isPublished: true, titleEn: { not: null } },
-        select: {
-          id: true,
-          name: true,
-          titleEn: true,
-          imageUrl: true,
-          _count: { select: { residences: true } },
-        },
-        orderBy: { residences: { _count: "desc" } },
-        take: 12,
-      }),
-      getFaqsForPage({ kind: "page", path: "/" }),
-    ]);
+  const [
+    selected,
+    taste,
+    fast,
+    discounted,
+    boomgardi,
+    hotels,
+    economical,
+    populars,
+    faqs,
+  ] = await Promise.all([
+    rail({ reviewsCount: { gt: 0 } }, 15, [
+      { averageRating: "desc" },
+      { reviewsCount: "desc" },
+    ]),
+    rail({}, 15),
+    rail({ isFast: true }, 15),
+    rail({ isOffer: true }, 15),
+    rail({ type: "BOOMGARDI" }, 15),
+    rail({ type: "HOTEL" }, 15),
+    railByTag("economic", 15),
+    // "مقصدهای محبوب" — cities, not listings.
+    prisma.location.findMany({
+      where: { type: "CITY", isPublished: true, titleEn: { not: null } },
+      select: {
+        id: true,
+        name: true,
+        titleEn: true,
+        imageUrl: true,
+        _count: { select: { residences: true } },
+      },
+      orderBy: { residences: { _count: "desc" } },
+      take: 12,
+    }),
+    getFaqsForPage({ kind: "page", path: "/" }),
+  ]);
 
   // The two city rails the page shows by name. They used to call an Odoo
   // endpoint with hardcoded category ids; resolving by slug means they follow
@@ -139,16 +277,17 @@ export async function getHomePageData() {
     expandSlugToLocationIds("shomal"),
     expandSlugToLocationIds("tehran"),
   ]);
-  const [shomalReses, tehranReses] = await Promise.all([
+  const [shomalReses, tehranReses, rails] = await Promise.all([
     shomalIds?.length ? rail({ locationId: { in: shomalIds } }, 15) : [],
     tehranIds?.length ? rail({ locationId: { in: tehranIds } }, 15) : [],
+    buildRails(),
   ]);
 
   const sectionMap = Object.fromEntries(
     sections.map((s) => [
       s.key,
       { title: s.title, subtitle: s.subtitle, heading_level: s.headingLevel },
-    ])
+    ]),
   );
 
   const data = {
@@ -191,7 +330,7 @@ export async function getHomePageData() {
         image: s.imageUrl,
         alt: s.alt ?? s.title,
         link: await resolveInternalLink(s.link),
-      }))
+      })),
     ),
     banners: await Promise.all(
       banners.map(async (b) => ({
@@ -201,7 +340,7 @@ export async function getHomePageData() {
         pc_image: b.pcImageUrl,
         mobile_image: b.mobileImageUrl,
         alt: b.alt ?? b.name,
-      }))
+      })),
     ),
     res_types: await Promise.all(
       types.map(async (t) => ({
@@ -212,12 +351,13 @@ export async function getHomePageData() {
         alt: t.alt ?? t.title,
         link: await resolveInternalLink(t.link),
         show_in_mobile: t.showInMobile,
-      }))
+      })),
     ),
     desc_boxes: descSections.map((d) => ({
       id: d.id,
       title: d.title,
       content: d.contentHtml,
+      video: d.videoUrl,
       pc_image: d.pcImageUrl,
       mobile_image: d.mobileImageUrl,
       alt: d.alt ?? d.title,
@@ -239,7 +379,11 @@ export async function getHomePageData() {
       author_name: a.authorName,
       author_image: a.authorImageUrl,
     })),
-    search_suggestions: suggestions.map((s) => ({ id: s.id, label: s.label, href: s.href })),
+    search_suggestions: suggestions.map((s) => ({
+      id: s.id,
+      label: s.label,
+      href: s.href,
+    })),
 
     app: settings?.appEnabled
       ? {
@@ -272,7 +416,7 @@ export async function getHomePageData() {
         image: s.imageUrl,
         alt: s.alt ?? s.title,
         link: await resolveInternalLink(s.link),
-      }))
+      })),
     ),
     selected_reses: selected,
     populars: populars.map((c) => ({
@@ -292,6 +436,10 @@ export async function getHomePageData() {
     shomal_reses: shomalReses,
     tehran_reses: tehranReses,
     economical_reses: economical,
+
+    // Admin-configured sliders. The three legacy keys above stay for now so a
+    // half-configured panel cannot blank the page.
+    rails,
 
     faqs,
   };

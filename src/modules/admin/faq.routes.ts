@@ -40,12 +40,15 @@ router.get(
       res,
       await faq.listFaqs({
         scope: req.query.scope as any,
-        locationId: req.query.locationId ? Number(req.query.locationId) : undefined,
+        locationId: req.query.locationId
+          ? Number(req.query.locationId)
+          : undefined,
         tagId: req.query.tagId ? Number(req.query.tagId) : undefined,
+        path: req.query.path as string | undefined,
         q: req.query.q as string | undefined,
-      })
-    )
-  )
+      }),
+    ),
+  ),
 );
 
 // "این صفحه چه سوال‌هایی نشون می‌ده؟" — the resolved list for a real page,
@@ -61,34 +64,40 @@ router.get(
         tagKey: req.query.tag as string | undefined,
         kind: req.query.kind as string | undefined,
         path: req.query.path as string | undefined,
-      })
-    )
-  )
+      }),
+    ),
+  ),
 );
 
 router.post(
   "/faqs",
   validate(faqBody),
-  asyncHandler(async (req, res) => ok(res, await faq.createFaq(req.body), 201))
+  asyncHandler(async (req, res) => ok(res, await faq.createFaq(req.body), 201)),
 );
 
 router.patch(
   "/faqs/:id",
   validate(idParamSchema),
   validate(faqBody),
-  asyncHandler(async (req, res) => ok(res, await faq.updateFaq(Number(req.params.id), req.body)))
+  asyncHandler(async (req, res) =>
+    ok(res, await faq.updateFaq(Number(req.params.id), req.body)),
+  ),
 );
 
 router.delete(
   "/faqs/:id",
   validate(idParamSchema),
-  asyncHandler(async (req, res) => ok(res, await faq.deleteFaq(Number(req.params.id))))
+  asyncHandler(async (req, res) =>
+    ok(res, await faq.deleteFaq(Number(req.params.id))),
+  ),
 );
 
 router.put(
   "/faqs/reorder",
   validate(z.object({ body: z.object({ ids: z.array(z.number().int()) }) })),
-  asyncHandler(async (req, res) => ok(res, await faq.reorderFaqs(req.body.ids)))
+  asyncHandler(async (req, res) =>
+    ok(res, await faq.reorderFaqs(req.body.ids)),
+  ),
 );
 
 export default router;

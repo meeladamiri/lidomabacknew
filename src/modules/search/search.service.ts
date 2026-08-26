@@ -405,6 +405,11 @@ export async function getSearchPageData(slug: string, tags?: string[]) {
       ? { name: province.name, title_en: province.titleEn }
       : null,
     cat_name: placeName || null,
+    // The active tag, so the visible breadcrumb can end on the page the reader
+    // is actually looking at. Without it a tag page's trail stopped at the
+    // city and marked *that* as the current page, disagreeing with the
+    // BreadcrumbList markup, which already carries the tag as a fourth step.
+    tag: tag ? { key: tag.key, name: tagTitle } : null,
     // For the title and H1 — see the stats block above.
     count: listingCount,
     min_price: minPrice,

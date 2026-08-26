@@ -35,6 +35,7 @@ router.patch(
         imagesEnabled: z.boolean().optional(),
         imageUrlMode: z.enum(["optimizer", "direct"]).optional(),
         imageOptimizerWidth: z.number().int().min(320).max(3840).optional(),
+        listCitySitemapsInRobots: z.boolean().optional(),
       }),
     })
   ),
@@ -53,6 +54,12 @@ router.patch(
         minResidenceCount: z.number().int().min(0).optional(),
         includeLastmod: z.boolean().optional(),
         requireSitemapFlag: z.boolean().optional(),
+        // "cities" section: the weights for the tag pages and listings that
+        // share a city file with the city page itself.
+        tagPriority: z.number().min(0).max(1).optional(),
+        tagChangeFreq: z.enum(CHANGE_FREQ).optional(),
+        listingPriority: z.number().min(0).max(1).optional(),
+        listingChangeFreq: z.enum(CHANGE_FREQ).optional(),
         sortOrder: z.number().int().optional(),
       }),
     })

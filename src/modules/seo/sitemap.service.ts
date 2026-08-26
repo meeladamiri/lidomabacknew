@@ -672,10 +672,24 @@ export async function renderRobots() {
     // The index covers every section, image sitemap included. It is listed
     // separately as well because Search Console reports image sitemaps
     // usefully when they are submitted in their own right.
-    const lines = [`Sitemap: ${abs(settings.siteUrl, "/sitemap.xml")}`];
+    const lines = [`# Main sitemaps`, `Sitemap: ${abs(settings.siteUrl, "/sitemap.xml")}`];
     if (settings.imagesEnabled) {
       lines.push(`Sitemap: ${abs(settings.siteUrl, "/sitemaps/images-1.xml")}`);
     }
+
+    // Every per-city sitemap gets its own line, as shab.ir does. The index
+    // already lists them, so this is for crawlers that read robots.txt but do
+    // not expand a sitemap index.
+    if (settings.listCitySitemapsInRobots) {
+      const cities = await getSitemapCities();
+      if (cities.length) {
+        lines.push("", `# Cities' sitemap`);
+        for (const c of cities) {
+          lines.push(`Sitemap: ${abs(settings.siteUrl, `/sitemaps/sitemap-${c.slug}.xml`)}`);
+        }
+      }
+    }
+
     out += `\n\n${lines.join("\n")}\n`;
   } else {
     out += "\n";
@@ -793,6 +807,7 @@ export async function updateSettings(data: any) {
     "siteUrl", "allowIndexing", "sitemapEnabled", "robotsEnabled",
     "maxUrlsPerFile", "robotsExtra", "crawlDelay",
     "imagesEnabled", "imageUrlMode", "imageOptimizerWidth",
+    "listCitySitemapsInRobots",
   ] as const) {
     if (data[f] !== undefined) patch[f] = data[f];
   }
@@ -805,6 +820,8 @@ export async function updateSection(id: number, data: any) {
   for (const f of [
     "isEnabled", "changeFreq", "priority", "minResidenceCount", "includeLastmod",
     "requireSitemapFlag", "sortOrder",
+    // The city file mixes three kinds of URL, each with its own weight.
+    "tagPriority", "tagChangeFreq", "listingPriority", "listingChangeFreq",
   ] as const) {
     if (data[f] !== undefined) patch[f] = data[f];
   }

@@ -960,6 +960,12 @@ model SitemapSettings {
   imageUrlMode   String  @default("optimizer") @map("image_url_mode") // optimizer | direct
   imageOptimizerWidth Int @default(1080) @map("image_optimizer_width")
 
+  // List every per-city sitemap in robots.txt as its own Sitemap: line, the
+  // way shab.ir does (228 lines there, ~440 here). The index already covers
+  // them, so this is belt-and-braces for crawlers that read robots.txt but do
+  // not expand a sitemap index.
+  listCitySitemapsInRobots Boolean @default(true) @map("list_city_sitemaps_in_robots")
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

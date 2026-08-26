@@ -18,6 +18,7 @@ import { publicCalendarRoutes, hostCalendarRoutes } from "@/modules/calendar/cal
 import { guestReservationRoutes, hostReservationRoutes } from "@/modules/reservations/reservations.routes";
 import adminRoutes from "@/modules/admin/admin.routes";
 import seoRoutes from "@/modules/seo/seo.routes";
+import homeRoutes from "@/modules/home/home.routes";
 
 export function buildApp() {
   const app = express();
@@ -46,6 +47,7 @@ export function buildApp() {
   app.use(seoRoutes);
 
   app.use("/api/auth", authRoutes);
+  app.use("/api/home", homeRoutes);
   app.use("/api/search", searchRoutes);
   app.use("/api/residences", residencesRoutes);
   app.use("/api/residences", publicCalendarRoutes); // GET /:id/calendar

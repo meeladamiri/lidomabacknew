@@ -33,8 +33,26 @@ export const residenceSearchSchema = z.object({
   body: z.object({
     cityId: z.number().int().optional(),
     cityName: z.string().optional(),
-    startDate: z.string().datetime().optional().or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()),
-    endDate: z.string().datetime().optional().or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()),
+    startDate: z
+      .string()
+      .datetime()
+      .optional()
+      .or(
+        z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/)
+          .optional(),
+      ),
+    endDate: z
+      .string()
+      .datetime()
+      .optional()
+      .or(
+        z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/)
+          .optional(),
+      ),
     guestsCount: z.number().int().min(1).optional(),
     roomsCount: z.number().int().min(1).optional(),
     minPrice: z.number().min(0).optional(),
@@ -51,6 +69,14 @@ export const residenceSearchSchema = z.object({
       .optional(),
     page: z.number().int().min(1).optional(),
     pageSize: z.number().int().min(1).max(50).optional(),
-    order: z.enum(["price_asc", "price_desc", "rating_desc", "newest"]).optional(),
+    order: z
+      .enum([
+        "price_asc",
+        "price_desc",
+        "rating_desc",
+        "newest",
+        "discount_desc",
+      ])
+      .optional(),
   }),
 });

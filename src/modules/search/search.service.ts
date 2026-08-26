@@ -1,9 +1,15 @@
 import { Prisma } from "../../generated/prisma/client";
 import { prisma } from "@/lib/prisma";
+import { calculateStayPrice } from "@/modules/reservations/pricing";
 import { publicResidenceId } from "@/lib/publicId";
 import { RESIDENCE_TYPE_SLUG } from "@/lib/residenceType";
 import { resolveLocationBySlug, expandSlugToLocationIds } from "@/lib/location";
-import { getActiveSeoTags, findSeoTagByKey, tagToWhere, featureToWhere } from "@/lib/seoTags";
+import {
+  getActiveSeoTags,
+  findSeoTagByKey,
+  tagToWhere,
+  featureToWhere,
+} from "@/lib/seoTags";
 import { getFaqsForPage } from "@/modules/seo/faq.service";
 import type { ResidenceType } from "@/generated/prisma/client";
 
@@ -30,7 +36,11 @@ export async function getProvincesAndCities() {
   const provinces = await prisma.location.findMany({
     where: { type: "PROVINCE" },
     include: {
-      children: { where: { type: "CITY" }, select: { name: true }, orderBy: { name: "asc" } },
+      children: {
+        where: { type: "CITY" },
+        select: { name: true },
+        orderBy: { name: "asc" },
+      },
     },
     orderBy: { name: "asc" },
   });
@@ -57,7 +67,10 @@ export async function resolveLegacyRedirect(rawPath: string) {
   }
   path = path.replace(/\/+$/, "");
 
-  const row = await prisma.legacyRedirect.findUnique({ where: { path }, select: { target: true } });
+  const row = await prisma.legacyRedirect.findUnique({
+    where: { path },
+    select: { target: true },
+  });
   return row?.target ?? null;
 }
 
@@ -74,12 +87,18 @@ export async function resolveLegacyImage(model: string, odooId: number) {
 export async function searchCitiesAndProvinces(query: string) {
   const [cities, provinces, residences] = await Promise.all([
     prisma.location.findMany({
-      where: { type: { not: "PROVINCE" }, name: { contains: query, mode: "insensitive" } },
+      where: {
+        type: { not: "PROVINCE" },
+        name: { contains: query, mode: "insensitive" },
+      },
       include: { parent: true, _count: { select: { residences: true } } },
       take: 10,
     }),
     prisma.location.findMany({
-      where: { type: "PROVINCE", name: { contains: query, mode: "insensitive" } },
+      where: {
+        type: "PROVINCE",
+        name: { contains: query, mode: "insensitive" },
+      },
       take: 5,
     }),
     // Residence-by-name matches — the destination search box shows these
@@ -144,10 +163,16 @@ export interface ResidenceSearchFilters {
   minPrice?: number;
   maxPrice?: number;
   type?: ResidenceType;
-  mapBounds?: { minLat: number; maxLat: number; minLng: number; maxLng: number };
+  mapBounds?: {
+    minLat: number;
+    maxLat: number;
+    minLng: number;
+    maxLng: number;
+  };
   page?: number;
   pageSize?: number;
-  order?: "price_asc" | "price_desc" | "rating_desc" | "newest";
+  order?:
+    "price_asc" | "price_desc" | "rating_desc" | "newest" | "discount_desc";
 }
 
 export const RESIDENCE_CARD_SELECT = {
@@ -177,11 +202,19 @@ export const RESIDENCE_CARD_SELECT = {
     },
   },
   neighborhood: true,
-  images: { select: { url: true }, orderBy: { sortOrder: "asc" as const }, take: 5 },
+  images: {
+    select: { url: true },
+    orderBy: { sortOrder: "asc" as const },
+    take: 5,
+  },
   rooms: { select: { id: true } },
 } satisfies Prisma.ResidenceSelect;
 
-export function toCard(residence: Prisma.ResidenceGetPayload<{ select: typeof RESIDENCE_CARD_SELECT }>) {
+export function toCard(
+  residence: Prisma.ResidenceGetPayload<{
+    select: typeof RESIDENCE_CARD_SELECT;
+  }>,
+) {
   return {
     // legacy-URL contract: migrated residences expose their Odoo id (see lib/publicId.ts)
     id: publicResidenceId(residence),
@@ -204,7 +237,9 @@ export function toCard(residence: Prisma.ResidenceGetPayload<{ select: typeof RE
     // Only a PROVINCE parent is the province — a city's parent can now be
     // another city or a country.
     province:
-      residence.location?.parent?.type === "PROVINCE" ? residence.location.parent.name : null,
+      residence.location?.parent?.type === "PROVINCE"
+        ? residence.location.parent.name
+        : null,
     neighborhood: residence.neighborhood,
     images: residence.images.map((i: { url: string }) => i.url),
     mainImage: residence.images[0]?.url ?? null,
@@ -234,7 +269,12 @@ export async function getSearchPageData(slug: string, tags?: string[]) {
       : null;
   // The response keeps the legacy city/province shape the frontend expects.
   const city = place && place.type !== "PROVINCE" ? place : null;
-  const province = place?.type === "PROVINCE" ? place : parent?.type === "PROVINCE" ? parent : null;
+  const province =
+    place?.type === "PROVINCE"
+      ? place
+      : parent?.type === "PROVINCE"
+        ? parent
+        : null;
 
   const placeName = place?.name ?? "";
   const placeSlug = place?.titleEn ?? q;
@@ -246,7 +286,8 @@ export async function getSearchPageData(slug: string, tags?: string[]) {
   // Tag×location pages (?pool=1 etc.) carry their own SEO identity. The first
   // recognized tag wins, matching the old behaviour.
   const activeTags = await getActiveSeoTags();
-  const tagKey = (tags ?? []).find((t) => activeTags.some((x) => x.key === t)) ?? null;
+  const tagKey =
+    (tags ?? []).find((t) => activeTags.some((x) => x.key === t)) ?? null;
   const tag = tagKey ? await findSeoTagByKey(tagKey) : null;
   const tagTitle = tag?.name ?? null;
   const tagClauses = tag ? tagToWhere(tag) : [];
@@ -279,10 +320,14 @@ export async function getSearchPageData(slug: string, tags?: string[]) {
           where: { locationId: place.id, tagId: tag.id, isActive: true },
         })
       : tag
-        ? await prisma.tagPage.findFirst({ where: { locationId: null, tagId: tag.id, isActive: true } })
+        ? await prisma.tagPage.findFirst({
+            where: { locationId: null, tagId: tag.id, isActive: true },
+          })
         : null;
 
-  const cityCanonical = place?.titleEn ? `${SITE_ORIGIN}/search/${place.titleEn}` : null;
+  const cityCanonical = place?.titleEn
+    ? `${SITE_ORIGIN}/search/${place.titleEn}`
+    : null;
 
   let page_title: string | null;
   let title: string | null;
@@ -296,8 +341,7 @@ export async function getSearchPageData(slug: string, tags?: string[]) {
     page_title = core;
     // Prefer what the ops team actually wrote for this page; the template is
     // the fallback for the pages Odoo never had a row for.
-    title =
-      tagPage?.metaTitle ?? `${core} | تضمین امنیت و نظافت | لیدوما تریپ`;
+    title = tagPage?.metaTitle ?? `${core} | تضمین امنیت و نظافت | لیدوما تریپ`;
     description =
       tagPage?.metaDescription ??
       `سایت رسمی ${core} | تضمین امنیت، قیمت و نظافت | پشتیبانی 7/24 | رزرو تلفنی و آنلاین قطعی${
@@ -314,7 +358,9 @@ export async function getSearchPageData(slug: string, tags?: string[]) {
     content_title = tagPage?.contentTitle ?? tag?.contentTitle ?? null;
     content = tagPage?.contentHtml ?? tag?.contentHtml ?? null;
   } else {
-    page_title = placeSeo?.pageTitle ?? (placeName ? `اجاره ویلا، سوئیت و اقامتگاه در ${placeName}` : null);
+    page_title =
+      placeSeo?.pageTitle ??
+      (placeName ? `اجاره ویلا، سوئیت و اقامتگاه در ${placeName}` : null);
     title = placeSeo?.metaTitle ?? null;
     description = placeSeo?.metaDescription ?? null;
     canonical = cityCanonical;
@@ -355,7 +401,9 @@ export async function getSearchPageData(slug: string, tags?: string[]) {
 
   return {
     city: city ? { name: city.name, title_en: city.titleEn } : null,
-    province: province ? { name: province.name, title_en: province.titleEn } : null,
+    province: province
+      ? { name: province.name, title_en: province.titleEn }
+      : null,
     cat_name: placeName || null,
     // For the title and H1 — see the stats block above.
     count: listingCount,
@@ -375,7 +423,12 @@ export async function getSearchPageData(slug: string, tags?: string[]) {
           cat_name: placeName,
           title: t.name,
         }))
-      : suggested.map((t) => ({ tag: t.key, cat_title: null, cat_name: null, title: t.name })),
+      : suggested.map((t) => ({
+          tag: t.key,
+          cat_title: null,
+          cat_name: null,
+          title: t.name,
+        })),
     // A tag page used to return no FAQs at all. It now gets whatever is
     // scoped to it — TAG / TAG_LOCATION questions — and the generic search
     // set is filtered out by the placeholder rule when it does not fit.
@@ -454,8 +507,14 @@ export async function searchResidences(filters: ResidenceSearchFilters) {
     };
   }
   if (filters.mapBounds) {
-    where.latitude = { gte: filters.mapBounds.minLat, lte: filters.mapBounds.maxLat };
-    where.longitude = { gte: filters.mapBounds.minLng, lte: filters.mapBounds.maxLng };
+    where.latitude = {
+      gte: filters.mapBounds.minLat,
+      lte: filters.mapBounds.maxLat,
+    };
+    where.longitude = {
+      gte: filters.mapBounds.minLng,
+      lte: filters.mapBounds.maxLng,
+    };
   }
 
   // Availability filter: exclude residences that have a blocking calendar day
@@ -465,7 +524,10 @@ export async function searchResidences(filters: ResidenceSearchFilters) {
       none: {
         roomId: null,
         isBlocked: true,
-        date: { gte: new Date(filters.startDate), lt: new Date(filters.endDate) },
+        date: {
+          gte: new Date(filters.startDate),
+          lt: new Date(filters.endDate),
+        },
       },
     };
   }
@@ -479,10 +541,17 @@ export async function searchResidences(filters: ResidenceSearchFilters) {
           ? [{ averageRating: "desc" }]
           : filters.order === "newest"
             ? [{ createdAt: "desc" }]
-            : // default "پیشنهاد لیدوما": the ops team's manual ranking weight
-              // ("اهمیت اقامتگاه" — Residence.importance, migrated from Odoo's
-              // x_sequence) first, then rating as the tie-breaker.
-              [{ importance: "desc" }, { averageRating: "desc" }, { createdAt: "desc" }];
+            : // "بیشترین تخفیف" — the weekly discount is the one the card shows.
+              filters.order === "discount_desc"
+              ? [{ weeklyDiscount: "desc" }]
+              : // default "پیشنهاد لیدوما": the ops team's manual ranking weight
+                // ("اهمیت اقامتگاه" — Residence.importance, migrated from Odoo's
+                // x_sequence) first, then rating as the tie-breaker.
+                [
+                  { importance: "desc" },
+                  { averageRating: "desc" },
+                  { createdAt: "desc" },
+                ];
 
   const [total, residences] = await Promise.all([
     prisma.residence.count({ where }),
@@ -495,10 +564,110 @@ export async function searchResidences(filters: ResidenceSearchFilters) {
     }),
   ]);
 
+  // With dates chosen, a card that still shows the base week rate is quoting a
+  // price the reader will not be charged — the old site priced the stay, and so
+  // does this. One calendar query covers the whole page of results.
+  const stayByResidence = await stayPricesFor(
+    residences.map((r) => r.id),
+    filters,
+  );
+
   return {
     total,
     page,
     pageSize,
-    items: residences.map(toCard),
+    items: residences.map((residence) => ({
+      ...toCard(residence),
+      stay: stayByResidence.get(residence.id) ?? null,
+    })),
   };
+}
+
+export interface StayQuote {
+  nights: number;
+  total: number;
+  perNight: number;
+  discountPercent: number;
+}
+
+/**
+ * Prices the selected stay for a page of results.
+ *
+ * Returns an empty map when no date range is selected, so the cards fall back
+ * to the "from" price. Uses the same calculateStayPrice the booking box does,
+ * so the number on the card and the number on the residence page agree.
+ */
+async function stayPricesFor(
+  residenceIds: number[],
+  filters: ResidenceSearchFilters,
+): Promise<Map<number, StayQuote>> {
+  const out = new Map<number, StayQuote>();
+  if (!filters.startDate || !filters.endDate || residenceIds.length === 0)
+    return out;
+
+  const start = new Date(filters.startDate);
+  const end = new Date(filters.endDate);
+  if (!(start < end)) return out;
+
+  const [pricing, calendar] = await Promise.all([
+    prisma.residence.findMany({
+      where: { id: { in: residenceIds } },
+      select: {
+        id: true,
+        weekPrice: true,
+        weekendPrice: true,
+        peakPrice: true,
+        extraGuestsPrice: true,
+        weeklyDiscount: true,
+        monthlyDiscount: true,
+        capacity: true,
+      },
+    }),
+    prisma.calendarDay.findMany({
+      where: {
+        residenceId: { in: residenceIds },
+        date: { gte: start, lt: end },
+      },
+      select: {
+        residenceId: true,
+        date: true,
+        specialPrice: true,
+        isPeak: true,
+      },
+    }),
+  ]);
+
+  const overridesByResidence = new Map<number, typeof calendar>();
+  for (const day of calendar) {
+    const list = overridesByResidence.get(day.residenceId) ?? [];
+    list.push(day);
+    overridesByResidence.set(day.residenceId, list);
+  }
+
+  for (const residence of pricing) {
+    // Guests beyond the included capacity are what the extra-guest rate is for.
+    const extraGuests = Math.max(
+      0,
+      (filters.guestsCount ?? 0) - (residence.capacity ?? 0),
+    );
+
+    const quote = calculateStayPrice({
+      residence,
+      calendarOverrides: overridesByResidence.get(residence.id) ?? [],
+      startDate: start,
+      endDate: end,
+      extraGuestsCount: extraGuests,
+    });
+
+    if (quote.nights < 1 || quote.totalAmount <= 0) continue;
+
+    out.set(residence.id, {
+      nights: quote.nights,
+      total: Math.round(quote.totalAmount),
+      perNight: Math.round(quote.totalAmount / quote.nights),
+      discountPercent: quote.discountPercent,
+    });
+  }
+
+  return out;
 }

@@ -44,6 +44,7 @@ import { buildCatalogRouter } from "./catalogRouter";
 import taxonomyRouter from "./taxonomy.routes";
 import sitemapRouter from "./sitemap.routes";
 import faqRouter from "./faq.routes";
+import homeAdminRouter from "./home.routes";
 
 const router = Router();
 router.use(requireAuth, requireAdmin);
@@ -132,6 +133,9 @@ router.use(sitemapRouter);
 
 // "سوالات متداول".
 router.use(faqRouter);
+
+// Home page CMS.
+router.use(homeAdminRouter);
 
 router.use("/amenities", buildCatalogRouter(service.amenities, upsertAmenitySchema));
 router.use("/rules", buildCatalogRouter(service.rules, upsertRuleSchema));

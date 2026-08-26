@@ -12,6 +12,7 @@ import { prisma } from "@/lib/prisma";
 import { RESIDENCE_CARD_SELECT, toCard } from "@/modules/search/search.service";
 import { getFaqsForPage } from "@/modules/seo/faq.service";
 import { getSeoTags, tagToWhere } from "@/lib/seoTags";
+import { expandSlugToLocationIds } from "@/lib/location";
 import type { Prisma } from "@/generated/prisma/client";
 
 const SITE_ORIGIN = "https://lidomatrip.com";
@@ -130,6 +131,18 @@ export async function getHomePageData() {
       }),
       getFaqsForPage({ kind: "page", path: "/" }),
     ]);
+
+  // The two city rails the page shows by name. They used to call an Odoo
+  // endpoint with hardcoded category ids; resolving by slug means they follow
+  // the location tree (شمال expands through location_includes) instead.
+  const [shomalIds, tehranIds] = await Promise.all([
+    expandSlugToLocationIds("shomal"),
+    expandSlugToLocationIds("tehran"),
+  ]);
+  const [shomalReses, tehranReses] = await Promise.all([
+    shomalIds?.length ? rail({ locationId: { in: shomalIds } }, 15) : [],
+    tehranIds?.length ? rail({ locationId: { in: tehranIds } }, 15) : [],
+  ]);
 
   const sectionMap = Object.fromEntries(
     sections.map((s) => [
@@ -276,6 +289,8 @@ export async function getHomePageData() {
     boomgardi_reses: boomgardi,
     hotel_reses: hotels,
     fast_reses: fast,
+    shomal_reses: shomalReses,
+    tehran_reses: tehranReses,
     economical_reses: economical,
 
     faqs,

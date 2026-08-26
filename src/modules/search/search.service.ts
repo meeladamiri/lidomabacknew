@@ -215,6 +215,12 @@ export function toCard(residence: Prisma.ResidenceGetPayload<{ select: typeof RE
 // Public site origin for absolute canonical URLs (matches production).
 const SITE_ORIGIN = "https://lidomatrip.com";
 
+// Below this a nightly price is a placeholder rather than a rate. Set by the
+// listings team: 8,817 of ~9,571 published listings sit above it, and what is
+// underneath is old or unset data rather than a real offer. See the aggregate
+// in getSearchPageData.
+const MIN_CREDIBLE_PRICE = 300_000;
+
 // SEO page data for /search/<slug> — the new-backend equivalent of legacy
 // Odoo's /api/search/new_page_data (meta tags, page H1, guide content block,
 // related-search tag links, and template-generated FAQs).
@@ -233,12 +239,17 @@ export async function getSearchPageData(slug: string, tags?: string[]) {
   const placeName = place?.name ?? "";
   const placeSlug = place?.titleEn ?? q;
 
+  // Same expansion the listing query uses, so the count on the page and the
+  // count in the title cannot disagree.
+  const placeIds = place ? await expandSlugToLocationIds(placeSlug) : null;
+
   // Tag×location pages (?pool=1 etc.) carry their own SEO identity. The first
   // recognized tag wins, matching the old behaviour.
   const activeTags = await getActiveSeoTags();
   const tagKey = (tags ?? []).find((t) => activeTags.some((x) => x.key === t)) ?? null;
   const tag = tagKey ? await findSeoTagByKey(tagKey) : null;
   const tagTitle = tag?.name ?? null;
+  const tagClauses = tag ? tagToWhere(tag) : [];
 
   // "سوالات متداول" now come from the faqs table (see modules/seo/faq.service).
   // They used to be four strings built inline here; the seeded rows carry the
@@ -311,6 +322,32 @@ export async function getSearchPageData(slug: string, tags?: string[]) {
     content = placeSeo?.contentHtml ?? null;
   }
 
+  // How many listings this page has, and what the cheapest one costs.
+  //
+  // Deliberately unfiltered: this is the number that goes in the <title>, and a
+  // title that changed with every date or guest filter would be unstable for a
+  // crawler — those URLs canonicalise back here anyway. It is the same figure
+  // the canonical page shows.
+  const statsWhere: Prisma.ResidenceWhereInput = {
+    state: "PUBLISHED",
+    published: true,
+    ...(placeIds?.length ? { locationId: { in: placeIds } } : {}),
+    ...(tagClauses.length ? { AND: tagClauses } : {}),
+  };
+
+  const [listingCount, priceAgg] = await Promise.all([
+    prisma.residence.count({ where: statsWhere }),
+    prisma.residence.aggregate({
+      // Floor, not `gt: 0`. 75 published listings carry a placeholder price —
+      // 43 of them 0 and 19 exactly 1 toman — and without a floor the Shiraz
+      // page advertised "from 1 toman" in its title.
+      where: { ...statsWhere, weekPrice: { gte: MIN_CREDIBLE_PRICE } },
+      _min: { weekPrice: true },
+    }),
+  ]);
+
+  const minPrice = priceAgg._min.weekPrice ?? null;
+
   // "جستجوهای مرتبط" — the tags Odoo flagged with x_suggest, in their order.
   const suggested = activeTags
     .filter((t) => t.isSuggested)
@@ -320,6 +357,9 @@ export async function getSearchPageData(slug: string, tags?: string[]) {
     city: city ? { name: city.name, title_en: city.titleEn } : null,
     province: province ? { name: province.name, title_en: province.titleEn } : null,
     cat_name: placeName || null,
+    // For the title and H1 — see the stats block above.
+    count: listingCount,
+    min_price: minPrice,
     page_title,
     title,
     description,

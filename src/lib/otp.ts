@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { env } from "@/config/env";
+import { sendSms } from "@/lib/sms";
 
 export function generateOtpCode(): string {
   const max = 10 ** env.otp.codeLength;
@@ -16,20 +17,12 @@ export function otpExpiryDate(): Date {
 }
 
 /**
- * Sends the OTP code via SMS provider.
- * NOTE: this is a stub — wire it to the real SMS provider (e.g. Kavenegar,
- * Melipayamak, ...) using env.otp.smsApiKey / env.otp.smsSender.
- * In non-production environments it just logs the code so development can
- * proceed without a live SMS account.
+ * Sends the OTP code by SMS.
+ *
+ * The provider integration lives in lib/sms.ts, which is also what chat
+ * notifications use — one place to wire a real provider into rather than two
+ * stubs, one of which would get forgotten.
  */
 export async function sendOtpSms(phone: string, code: string): Promise<void> {
-  if (!env.otp.smsApiKey) {
-    // eslint-disable-next-line no-console
-    console.warn(`[OTP][DEV] SMS provider not configured. Code for ${phone}: ${code}`);
-    return;
-  }
-
-  // TODO: integrate real SMS provider HTTP call here.
-  // eslint-disable-next-line no-console
-  console.log(`[OTP] would send "${code}" to ${phone} via configured provider`);
+  await sendSms(phone, `کد ورود شما به لیدوماتریپ: ${code}`);
 }

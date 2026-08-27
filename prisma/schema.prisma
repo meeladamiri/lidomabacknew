@@ -36,6 +36,35 @@ enum ResidenceType {
   HOTEL // hotel & hotel-apartment
 }
 
+// ---------- Conversations ----------
+
+// A BOOKING thread is host <-> guest and hangs off one reservation. A SUPPORT
+// thread is user <-> the admin pool. Admins can appear in either.
+enum ConversationType {
+  BOOKING
+  SUPPORT
+}
+
+enum ConversationStatus {
+  OPEN
+  PENDING // support: answered, waiting on the user
+  CLOSED
+}
+
+enum ParticipantRole {
+  GUEST
+  HOST
+  ADMIN
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  FILE
+  SYSTEM // reservation created, state changed — rendered as a card, not a bubble
+  INTERNAL_NOTE // admin-only; never leaves the panel
+}
+
 enum ResidenceState {
   DRAFT // wizard in progress, not submitted
   PENDING // submitted, awaiting review
@@ -313,6 +342,10 @@ model User {
   refreshTokens       RefreshToken[]
   reviews             Review[]
 
+  conversations         ConversationParticipant[]
+  sentMessages          Message[]                 @relation("SentMessages")
+  assignedConversations Conversation[]            @relation("AssignedConversations")
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -512,6 +545,7 @@ model Residence {
   reservations   Reservation[]
   favouritedBy   Favourite[]
   reviews        Review[]
+  conversations  Conversation[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -703,8 +737,9 @@ model Reservation {
   guestNameOverride  String? @map("guest_name_override") // booking-for-someone-else
   guestPhoneOverride String? @map("guest_phone_override")
 
-  rooms  ReservationRoom[]
-  review Review?
+  rooms        ReservationRoom[]
+  review       Review?
+  conversation Conversation?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1367,4 +1402,111 @@ model HomeRailItem {
 
   @@index([railId])
   @@map("home_rail_items")
+}
+
+// ---------- Conversations ----------
+
+model Conversation {
+  id       Int                @id @default(autoincrement())
+  // URLs carry this, not the primary key: a sequential id in a chat URL is an
+  // invitation to walk other people's threads.
+  publicId String             @unique @map("public_id")
+  type     ConversationType
+  status   ConversationStatus @default(OPEN)
+
+  // Support only — what the user said it was about.
+  subject String?
+
+  // One thread per reservation, enforced here rather than by read-then-write
+  // in the service, which loses under concurrency.
+  bookingId Int?         @unique @map("booking_id")
+  booking   Reservation? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+
+  // Denormalised from the booking so the admin list can filter by residence
+  // and the thread header can name it without a join through reservations.
+  residenceId Int?       @map("residence_id")
+  residence   Residence? @relation(fields: [residenceId], references: [id], onDelete: SetNull)
+
+  // Support: whoever answered first owns it.
+  assignedAdminId Int?  @map("assigned_admin_id")
+  assignedAdmin   User? @relation("AssignedConversations", fields: [assignedAdminId], references: [id], onDelete: SetNull)
+
+  // Denormalised so the conversation list is one query instead of one per row.
+  lastMessageAt      DateTime? @map("last_message_at")
+  lastMessagePreview String?   @map("last_message_preview")
+
+  participants ConversationParticipant[]
+  messages     Message[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([type, status, lastMessageAt])
+  @@index([residenceId])
+  @@map("conversations")
+}
+
+model ConversationParticipant {
+  id             Int          @id @default(autoincrement())
+  conversationId Int          @map("conversation_id")
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  userId         Int          @map("user_id")
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  role ParticipantRole
+
+  // Counted here rather than derived. The header badge runs on every page
+  // load, and a COUNT over messages joined to read state is exactly the shape
+  // of query that made the home page take two seconds.
+  unreadCount       Int       @default(0) @map("unread_count")
+  lastReadAt        DateTime? @map("last_read_at")
+  lastReadMessageId Int?      @map("last_read_message_id")
+
+  // Last SMS about this thread, for the notification throttle's slow path.
+  notifiedAt DateTime? @map("notified_at")
+  isMuted    Boolean   @default(false) @map("is_muted")
+  leftAt     DateTime? @map("left_at")
+
+  createdAt DateTime @default(now())
+
+  @@unique([conversationId, userId])
+  @@index([userId])
+  @@map("conversation_participants")
+}
+
+model Message {
+  id             Int          @id @default(autoincrement())
+  conversationId Int          @map("conversation_id")
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  // Null for SYSTEM messages, and for a sender whose account was deleted.
+  senderId   Int?             @map("sender_id")
+  sender     User?            @relation("SentMessages", fields: [senderId], references: [id], onDelete: SetNull)
+  senderRole ParticipantRole? @map("sender_role")
+
+  type MessageType @default(TEXT)
+  body String
+
+  // SYSTEM payload: { kind, reference, startDate, endDate, guestsCount, ... }
+  // so the front can render a status card instead of parsing a sentence.
+  meta Json?
+
+  attachmentUrl  String? @map("attachment_url")
+  attachmentName String? @map("attachment_name")
+  attachmentSize Int?    @map("attachment_size")
+
+  // Optimistic send needs a retry to be a no-op, not a duplicate. Unique per
+  // conversation, so the database settles it rather than the UI.
+  clientNonce String? @map("client_nonce")
+
+  // Off-platform contact detected in the body (phone number, messenger id).
+  // Flagged for the panel, never blocked.
+  flagged Boolean @default(false)
+
+  deletedAt DateTime? @map("deleted_at")
+  createdAt DateTime  @default(now())
+
+  @@unique([conversationId, clientNonce])
+  @@index([conversationId, id])
+  @@map("messages")
 }

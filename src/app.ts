@@ -8,6 +8,7 @@ import { env, isProd } from "@/config/env";
 import { errorHandler, notFoundHandler } from "@/middleware/error";
 import { invalidateOnWrite } from "@/middleware/cacheInvalidation";
 import { cacheStatus, initCache } from "@/lib/cache";
+import { initPubSub } from "@/lib/pubsub";
 import { UPLOAD_ROOT } from "@/middleware/upload";
 
 import authRoutes from "@/modules/auth/auth.routes";
@@ -21,11 +22,14 @@ import { guestReservationRoutes, hostReservationRoutes } from "@/modules/reserva
 import adminRoutes from "@/modules/admin/admin.routes";
 import seoRoutes from "@/modules/seo/seo.routes";
 import homeRoutes from "@/modules/home/home.routes";
+import conversationRoutes from "@/modules/conversations/conversations.routes";
 
 export function buildApp() {
   const app = express();
 
   initCache();
+  // Chat fan-out across instances. Like the cache, a no-op without Redis.
+  initPubSub();
 
   // crossOriginResourcePolicy defaults to "same-origin", which would block the
   // Next.js frontend (a different origin) from loading /uploads images.
@@ -59,6 +63,7 @@ export function buildApp() {
   // Authenticated (guest)
   app.use("/api/users", usersRoutes);
   app.use("/api/favourites", favouritesRoutes);
+  app.use("/api/conversations", conversationRoutes);
   app.use("/api/reservations", guestReservationRoutes);
 
   // Host

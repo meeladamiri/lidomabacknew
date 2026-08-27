@@ -25,6 +25,43 @@ let client: Redis | null = null;
 let attempted = false;
 let errorLogged = false;
 
+/**
+ * A configured connection, or null when there is no Redis to connect to.
+ *
+ * Shared with the pub/sub layer, which needs its own sockets: a connection in
+ * subscriber mode cannot run ordinary commands, so chat realtime opens two of
+ * its own rather than borrowing this one.
+ *
+ * `overrides` exists for those: commandTimeout is right for a cache read that
+ * must lose a race against the database, and wrong for a subscriber that is
+ * supposed to sit idle for hours.
+ */
+export function createRedis(label: string, overrides: Record<string, unknown> = {}): Redis | null {
+  if (!env.redis.url) return null;
+
+  const conn = new Redis(env.redis.url, {
+    enableOfflineQueue: false,
+    maxRetriesPerRequest: 1,
+    connectTimeout: 3_000,
+    commandTimeout: 1_000,
+    retryStrategy: (times: number) => Math.min(times * 500, 30_000),
+    ...overrides,
+  });
+
+  let logged = false;
+  conn.on("error", (err: Error) => {
+    if (logged) return;
+    logged = true;
+    console.warn(`[redis:${label}] unavailable: ${err.message}`);
+  });
+  conn.on("ready", () => {
+    if (logged) console.info(`[redis:${label}] reconnected`);
+    logged = false;
+  });
+
+  return conn;
+}
+
 function connect(): Redis | null {
   if (!env.redis.url) return null;
   if (attempted) return client;

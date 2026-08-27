@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { AppError } from "@/lib/errors";
+import { onReservationCreated, onReservationStateChanged } from "@/modules/conversations/bookingHooks";
 import { generateReference } from "@/utils/reference";
 import { calculateStayPrice } from "./pricing";
 import { resolvePublicResidenceId } from "@/lib/publicId";
@@ -286,6 +287,10 @@ export async function createReservation(
     { timeout: 15000 }
   );
 
+  // Opens the host <-> guest thread with a summary of what was just booked.
+  // Detached: chat is never a reason a booking fails.
+  onReservationCreated(reservation.id);
+
   return {
     reservation,
     pricing,
@@ -381,7 +386,7 @@ export async function acceptReservation(hostId: number, id: number) {
     throw AppError.badRequest("این رزرو در وضعیت قابل تایید نیست");
   }
 
-  return prisma.reservation.update({
+  const accepted = await prisma.reservation.update({
     where: {
       id,
     },
@@ -390,6 +395,10 @@ export async function acceptReservation(hostId: number, id: number) {
     },
     include: RESERVATION_INCLUDE,
   });
+
+  onReservationStateChanged(id, "BOOKING_APPROVED");
+
+  return accepted;
 }
 
 export async function rejectReservation(
@@ -422,6 +431,14 @@ export async function rejectReservation(
     reservation.startDate,
     reservation.endDate
   );
+
+  // cancelledBy comes off the updated row rather than the call site, so all
+  // three cancellation paths — host reject, host cancel, guest cancel — post
+  // the same card and it always names the right side.
+  onReservationStateChanged(id, "BOOKING_CANCELLED", {
+    reason: updated.cancelReason,
+    cancelledBy: updated.cancelledBy,
+  });
 
   return updated;
 }
@@ -456,6 +473,14 @@ export async function hostCancelReservation(
     reservation.startDate,
     reservation.endDate
   );
+
+  // cancelledBy comes off the updated row rather than the call site, so all
+  // three cancellation paths — host reject, host cancel, guest cancel — post
+  // the same card and it always names the right side.
+  onReservationStateChanged(id, "BOOKING_CANCELLED", {
+    reason: updated.cancelReason,
+    cancelledBy: updated.cancelledBy,
+  });
 
   return updated;
 }
@@ -592,6 +617,14 @@ export async function guestCancelReservation(
     reservation.startDate,
     reservation.endDate
   );
+
+  // cancelledBy comes off the updated row rather than the call site, so all
+  // three cancellation paths — host reject, host cancel, guest cancel — post
+  // the same card and it always names the right side.
+  onReservationStateChanged(id, "BOOKING_CANCELLED", {
+    reason: updated.cancelReason,
+    cancelledBy: updated.cancelledBy,
+  });
 
   return updated;
 }

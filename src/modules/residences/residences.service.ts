@@ -266,30 +266,76 @@ export async function createResidence(
 
 const WIZARD_STEP_COUNT = 14;
 
+/**
+ * The wizard progress marker, folded into whatever update is already running.
+ *
+ * The front used to advance it with a second PATCH after every step that
+ * writes a sub-resource — amenities, rules, pricing, capacity, rooms, submit —
+ * so seven of the fourteen steps cost two serial round trips on a host's phone
+ * before the next screen could appear. Every one of those handlers already
+ * updates the residence row; the marker rides along.
+ *
+ * It only ever moves forward: a host revisiting step 4 of a draft they had
+ * taken to step 11 must not be shown as having lost seven steps of work.
+ */
+function stepPatch(
+  current: number | null | undefined,
+  step: number | undefined
+): { step?: number; completionPercent?: number } {
+  if (step === undefined) return {};
+  const next = Math.max(current ?? 0, step);
+  return { step: next, completionPercent: Math.round((next / WIZARD_STEP_COUNT) * 100) };
+}
+
 export async function updateSpecs(
   hostId: number,
   id: number,
-  data: Prisma.ResidenceUpdateInput & { step?: number }
+  // Unchecked rather than the relation form: this writes locationId as a
+  // scalar, which the checked input type does not allow.
+  data: Prisma.ResidenceUncheckedUpdateInput & { step?: number; cityId?: number; cityName?: string }
 ) {
   const residence = await assertOwnership(hostId, id);
-  const { step, ...fields } = data;
-  const patch: Prisma.ResidenceUpdateInput = { ...fields };
-  if (step !== undefined) {
-    const nextStep = Math.max(residence.step ?? 0, step);
-    patch.step = nextStep;
-    patch.completionPercent = Math.round((nextStep / WIZARD_STEP_COUNT) * 100);
+  const { step, cityId, cityName, ...fields } = data;
+
+  // The schema calls it cityId; the column is location_id. Passing the body
+  // straight through meant Prisma rejected the whole update as an unknown
+  // argument, so the wizard's address step failed every time a city was
+  // chosen — which is every time it is used.
+  let locationId = cityId;
+
+  // An explicit id wins; the name is the wizard's fallback, resolved here
+  // rather than by the client so the address step stays one request.
+  if (locationId === undefined && cityName) {
+    const city = await prisma.location.findFirst({
+      where: { name: cityName, type: "CITY" },
+      select: { id: true },
+    });
+    locationId = city?.id;
   }
-  return prisma.residence.update({ where: { id }, data: patch });
+
+  return prisma.residence.update({
+    where: { id },
+    data: {
+      ...fields,
+      ...(locationId !== undefined ? { locationId } : {}),
+      ...stepPatch(residence.step, step),
+    },
+  });
 }
 
 export async function updateAmenities(
   hostId: number,
   id: number,
   amenities: { amenityId: number; extraFeatures?: Record<string, unknown> }[],
-  other?: string
+  other?: string,
+  step?: number
 ) {
-  await assertOwnership(hostId, id);
+  const residence = await assertOwnership(hostId, id);
+  const advance = stepPatch(residence.step, step);
   return prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    if (Object.keys(advance).length > 0) {
+      await tx.residence.update({ where: { id }, data: advance });
+    }
     await tx.residenceAmenity.deleteMany({ where: { residenceId: id } });
     if (amenities.length > 0) {
       await tx.residenceAmenity.createMany({
@@ -326,13 +372,15 @@ export async function updateRules(
     hostShareTotalAmount?: number;
     hostSharePastNights?: number;
     hostShareFutureNights?: number;
+    step?: number;
   }
 ) {
-  await assertOwnership(hostId, id);
-  const { rules, ...residenceFields } = data;
+  const residence = await assertOwnership(hostId, id);
+  const { rules, step, ...residenceFields } = data;
+  const patch = { ...residenceFields, ...stepPatch(residence.step, step) };
   return prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-    if (Object.keys(residenceFields).length > 0) {
-      await tx.residence.update({ where: { id }, data: residenceFields });
+    if (Object.keys(patch).length > 0) {
+      await tx.residence.update({ where: { id }, data: patch });
     }
     if (rules !== undefined) {
       await tx.residenceRule.deleteMany({ where: { residenceId: id } });
@@ -356,27 +404,37 @@ export async function updateRules(
 export async function updatePricing(
   hostId: number,
   id: number,
-  data: Prisma.ResidenceUpdateInput
+  data: Prisma.ResidenceUpdateInput & { step?: number }
 ) {
-  await assertOwnership(hostId, id);
-  return prisma.residence.update({ where: { id }, data });
+  const residence = await assertOwnership(hostId, id);
+  const { step, ...fields } = data;
+  return prisma.residence.update({
+    where: { id },
+    data: { ...fields, ...stepPatch(residence.step, step) },
+  });
 }
 
 export async function updateCapacity(
   hostId: number,
   id: number,
-  data: { capacity?: number; maxCapacity?: number }
+  data: { capacity?: number; maxCapacity?: number; step?: number }
 ) {
-  await assertOwnership(hostId, id);
-  return prisma.residence.update({ where: { id }, data });
+  const residence = await assertOwnership(hostId, id);
+  const { step, ...fields } = data;
+  return prisma.residence.update({
+    where: { id },
+    data: { ...fields, ...stepPatch(residence.step, step) },
+  });
 }
 
 export async function changeResidenceState(
   hostId: number,
   id: number,
-  action: "activate" | "deactivate" | "delete" | "submit"
+  action: "activate" | "deactivate" | "delete" | "submit",
+  step?: number
 ) {
-  await assertOwnership(hostId, id);
+  const residence = await assertOwnership(hostId, id);
+  const advance = stepPatch(residence.step, step);
   const stateMap = {
     activate: "PUBLISHED",
     deactivate: "DEACTIVATED",
@@ -388,6 +446,7 @@ export async function changeResidenceState(
     data: {
       state: stateMap[action],
       published: action === "activate",
+      ...advance,
     },
   });
 }
@@ -432,13 +491,15 @@ export async function replaceRooms(
     capacity?: number;
     maxCapacity?: number;
     rooms: Prisma.RoomCreateWithoutResidenceInput[];
+    step?: number;
   }
 ) {
-  await assertOwnership(hostId, id);
-  const { rooms, ...residenceFields } = data;
+  const residence = await assertOwnership(hostId, id);
+  const { rooms, step, ...residenceFields } = data;
+  const patch = { ...residenceFields, ...stepPatch(residence.step, step) };
   return prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-    if (Object.keys(residenceFields).length > 0) {
-      await tx.residence.update({ where: { id }, data: residenceFields });
+    if (Object.keys(patch).length > 0) {
+      await tx.residence.update({ where: { id }, data: patch });
     }
     await tx.room.deleteMany({ where: { residenceId: id } });
     if (rooms.length > 0) {

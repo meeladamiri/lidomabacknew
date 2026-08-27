@@ -14,6 +14,10 @@ export const createResidenceSchema = z.object({
     type: z.enum(RESIDENCE_TYPES),
     name: z.string().min(1).max(200).optional(),
     cityId: z.number().int().optional(),
+    // The wizard's address step knows the city only by the name the host
+    // picked. It used to look the id up with its own request before this one,
+    // which put a second serial round trip in front of every address save.
+    cityName: z.string().max(200).optional(),
   }),
 });
 
@@ -55,6 +59,9 @@ export const updateAmenitiesSchema = z.object({
       })
     ),
     other: z.string().optional(),
+    // Wizard progress, folded into this write so the front does not need a
+    // second PATCH to advance it. Never moves backward — see stepPatch.
+    step: z.number().int().min(0).max(14).optional(),
   }),
 });
 
@@ -81,6 +88,9 @@ export const updateRulesSchema = z.object({
     hostShareTotalAmount: z.number().optional(),
     hostSharePastNights: z.number().optional(),
     hostShareFutureNights: z.number().optional(),
+    // Wizard progress, folded into this write so the front does not need a
+    // second PATCH to advance it. Never moves backward — see stepPatch.
+    step: z.number().int().min(0).max(14).optional(),
   }),
 });
 
@@ -96,6 +106,9 @@ export const updatePricingSchema = z.object({
     extraGuestsPeakPrice: z.number().min(0).optional(),
     weeklyDiscount: z.number().min(0).max(100).optional(),
     monthlyDiscount: z.number().min(0).max(100).optional(),
+    // Wizard progress, folded into this write so the front does not need a
+    // second PATCH to advance it. Never moves backward — see stepPatch.
+    step: z.number().int().min(0).max(14).optional(),
   }),
 });
 
@@ -104,6 +117,9 @@ export const updateCapacitySchema = z.object({
   body: z.object({
     capacity: z.number().int().optional(),
     maxCapacity: z.number().int().optional(),
+    // Wizard progress, folded into this write so the front does not need a
+    // second PATCH to advance it. Never moves backward — see stepPatch.
+    step: z.number().int().min(0).max(14).optional(),
   }),
 });
 
@@ -111,6 +127,9 @@ export const changeStateSchema = z.object({
   params: z.object({ id: z.coerce.number().int() }),
   body: z.object({
     action: z.enum(["activate", "deactivate", "delete", "submit"]),
+    // Wizard progress, folded into this write so the front does not need a
+    // second PATCH to advance it. Never moves backward — see stepPatch.
+    step: z.number().int().min(0).max(14).optional(),
   }),
 });
 

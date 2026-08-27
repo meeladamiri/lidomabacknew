@@ -40,7 +40,8 @@ export async function updateAmenities(req: Request, res: Response) {
     hostId(req),
     Number(req.params.id),
     req.body.amenities,
-    req.body.other
+    req.body.other,
+    req.body.step
   );
   return ok(res, data);
 }
@@ -61,7 +62,12 @@ export async function updateCapacity(req: Request, res: Response) {
 }
 
 export async function changeState(req: Request, res: Response) {
-  const data = await service.changeResidenceState(hostId(req), Number(req.params.id), req.body.action);
+  const data = await service.changeResidenceState(
+    hostId(req),
+    Number(req.params.id),
+    req.body.action,
+    req.body.step
+  );
   return ok(res, data);
 }
 

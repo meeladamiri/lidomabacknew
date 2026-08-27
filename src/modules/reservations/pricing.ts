@@ -1,4 +1,4 @@
-import { Prisma, PrismaClient } from "../../generated/prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 
 const IRAN_WEEKEND_DAYS = new Set([4, 5]); // Thursday(4), Friday(5) — adjust if the business defines this differently
 

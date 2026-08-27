@@ -16,7 +16,7 @@
 //   npx tsx scripts/fix-city-slugs-from-odoo.ts               # dry run
 //   npx tsx scripts/fix-city-slugs-from-odoo.ts --commit        # writes
 
-import { PrismaClient } from "@/generated/prisma/client";
+import { PrismaClient } from "@prisma/client";
 import { prisma as targetPrisma } from "@/lib/prisma";
 
 const COMMIT = process.argv.includes("--commit");

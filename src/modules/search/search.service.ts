@@ -1,4 +1,4 @@
-import { Prisma } from "../../generated/prisma/client";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { calculateStayPrice } from "@/modules/reservations/pricing";
 import { publicResidenceId } from "@/lib/publicId";
@@ -11,7 +11,7 @@ import {
   featureToWhere,
 } from "@/lib/seoTags";
 import { getFaqsForPage } from "@/modules/seo/faq.service";
-import type { ResidenceType } from "@/generated/prisma/client";
+import type { ResidenceType } from "@prisma/client";
 
 export async function getPopularDestinations() {
   // Cities ranked by number of published residences.

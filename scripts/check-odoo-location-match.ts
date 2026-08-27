@@ -12,7 +12,7 @@
 // Usage:
 //   npx tsx --env-file=.env scripts/check-odoo-location-match.ts
 
-import { PrismaClient } from "@/generated/prisma/client";
+import { PrismaClient } from "@prisma/client";
 import { prisma as targetPrisma } from "@/lib/prisma";
 import { ODOO_ID_IS_PROVINCE_ROW, ODOO_IDS_TO_SKIP } from "./odooLocationOverrides";
 

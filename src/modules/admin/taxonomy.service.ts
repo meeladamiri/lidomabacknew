@@ -4,7 +4,7 @@
 // are indexed — so the write paths guard the things that would silently break
 // SEO: duplicate slugs, cycles in the tree, and deletes that orphan listings.
 
-import { Prisma, type LocationType, type ResidenceType } from "@/generated/prisma/client";
+import { Prisma, type LocationType, type ResidenceType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { AppError } from "@/lib/errors";
 import { invalidateSeoTagCache } from "@/lib/seoTags";

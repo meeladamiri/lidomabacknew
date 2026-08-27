@@ -15,7 +15,7 @@
 //   npx tsx --env-file=.env scripts/migrate-odoo-locations.ts             # dry run
 //   npx tsx --env-file=.env scripts/migrate-odoo-locations.ts --commit    # writes
 
-import { PrismaClient, type LocationType, type ResidenceType } from "@/generated/prisma/client";
+import { PrismaClient, type LocationType, type ResidenceType } from "@prisma/client";
 import { prisma as targetPrisma } from "@/lib/prisma";
 import { ODOO_ID_IS_PROVINCE_ROW, ODOO_IDS_TO_SKIP, ODOO_ROOT_ID } from "./odooLocationOverrides";
 

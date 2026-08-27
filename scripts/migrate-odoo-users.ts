@@ -18,7 +18,7 @@
 //   - cityId is left null for now — the target `cities` catalog only has 2
 //     seed rows, so text matching would fail for ~everyone anyway.
 
-import { PrismaClient } from "@/generated/prisma/client";
+import { PrismaClient } from "@prisma/client";
 import { prisma as targetPrisma } from "@/lib/prisma";
 
 const COMMIT = process.argv.includes("--commit");

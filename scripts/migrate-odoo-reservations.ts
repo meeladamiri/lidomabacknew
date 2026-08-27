@@ -20,7 +20,7 @@
 // whole-place (SUIT) bookings; room-level linkage can be added later if
 // boomgardi per-room history turns out to matter.
 
-import { PrismaClient } from "@/generated/prisma/client";
+import { PrismaClient } from "@prisma/client";
 import { prisma as targetPrisma } from "@/lib/prisma";
 
 const COMMIT = process.argv.includes("--commit");

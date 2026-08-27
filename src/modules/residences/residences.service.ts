@@ -1,4 +1,4 @@
-import { Prisma, type ResidenceType } from "@/generated/prisma/client";
+import { Prisma, type ResidenceType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { AppError } from "@/lib/errors";
 import { generateReference } from "@/utils/reference";

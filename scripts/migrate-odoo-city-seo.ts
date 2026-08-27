@@ -11,7 +11,7 @@
 //   npx tsx --env-file=.env scripts/migrate-odoo-city-seo.ts               # dry run
 //   npx tsx --env-file=.env scripts/migrate-odoo-city-seo.ts --commit        # writes
 
-import { PrismaClient } from "@/generated/prisma/client";
+import { PrismaClient } from "@prisma/client";
 import { prisma as targetPrisma } from "@/lib/prisma";
 
 const COMMIT = process.argv.includes("--commit");

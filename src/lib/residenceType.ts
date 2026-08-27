@@ -2,7 +2,7 @@
 // taxonomy), migrated from legacy Odoo product_template.x_display_type.
 // Every place that renders or filters by type goes through here so adding a
 // fourth type later is a one-file change.
-import type { ResidenceType } from "@/generated/prisma/client";
+import type { ResidenceType } from "@prisma/client";
 
 export const RESIDENCE_TYPES = ["SUIT", "BOOMGARDI", "HOTEL"] as const;
 

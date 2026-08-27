@@ -16,7 +16,7 @@
 //     canonicalises to /search/shiraz, so listing it would submit a duplicate
 //   • anything below the section's thin-content threshold
 
-import { Prisma } from "@/generated/prisma/client";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { publicResidenceId } from "@/lib/publicId";
 import { getSeoTags, tagToWhere } from "@/lib/seoTags";

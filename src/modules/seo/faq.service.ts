@@ -12,7 +12,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { AppError } from "@/lib/errors";
-import type { Faq, FaqScope } from "@/generated/prisma/client";
+import type { Faq, FaqScope } from "@prisma/client";
 
 /** Most specific first — this is the order questions render in. */
 const SCOPE_RANK: Record<FaqScope, number> = {

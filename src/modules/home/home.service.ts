@@ -13,7 +13,7 @@ import { RESIDENCE_CARD_SELECT, toCard } from "@/modules/search/search.service";
 import { getFaqsForPage } from "@/modules/seo/faq.service";
 import { getSeoTags, tagToWhere } from "@/lib/seoTags";
 import { expandSlugToLocationIds } from "@/lib/location";
-import type { Prisma } from "@/generated/prisma/client";
+import type { Prisma } from "@prisma/client";
 
 const SITE_ORIGIN = "https://lidomatrip.com";
 

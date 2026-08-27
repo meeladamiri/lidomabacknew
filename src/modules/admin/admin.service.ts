@@ -3,7 +3,7 @@ import {
   ResidenceState,
   ReservationState,
   type ResidenceType,
-} from "../../generated/prisma/client";
+} from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { AppError } from "@/lib/errors";
 import { parsePagination } from "@/utils/pagination";

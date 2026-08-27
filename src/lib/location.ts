@@ -5,7 +5,7 @@
 // which diffs slug -> place and slug -> listing count across the migration.
 
 import { prisma } from "@/lib/prisma";
-import type { Location, LocationType } from "@/generated/prisma/client";
+import type { Location, LocationType } from "@prisma/client";
 
 /**
  * City wins over province, which is how the old code resolved

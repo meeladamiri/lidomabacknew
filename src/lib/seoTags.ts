@@ -7,9 +7,9 @@
 // production required استخر AND خانه ویلایی. Definitions now live in seo_tags /
 // seo_tag_conditions, imported verbatim from Odoo's website_tags.x_domain.
 
-import { Prisma } from "../generated/prisma/client";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import type { SeoTag, SeoTagCondition } from "@/generated/prisma/client";
+import type { SeoTag, SeoTagCondition } from "@prisma/client";
 
 export type TagWithConditions = SeoTag & { conditions: SeoTagCondition[] };
 

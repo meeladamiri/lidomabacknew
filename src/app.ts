@@ -6,6 +6,8 @@ import compression from "compression";
 import cookieParser from "cookie-parser";
 import { env, isProd } from "@/config/env";
 import { errorHandler, notFoundHandler } from "@/middleware/error";
+import { invalidateOnWrite } from "@/middleware/cacheInvalidation";
+import { cacheStatus, initCache } from "@/lib/cache";
 import { UPLOAD_ROOT } from "@/middleware/upload";
 
 import authRoutes from "@/modules/auth/auth.routes";
@@ -23,6 +25,8 @@ import homeRoutes from "@/modules/home/home.routes";
 export function buildApp() {
   const app = express();
 
+  initCache();
+
   // crossOriginResourcePolicy defaults to "same-origin", which would block the
   // Next.js frontend (a different origin) from loading /uploads images.
   app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
@@ -39,7 +43,7 @@ export function buildApp() {
   app.use(morgan(isProd ? "combined" : "dev"));
   app.use("/uploads", express.static(UPLOAD_ROOT));
 
-  app.get("/health", (_req, res) => res.json({ status: "ok" }));
+  app.get("/health", (_req, res) => res.json({ status: "ok", cache: cacheStatus() }));
 
   // Public
   // Served from the site root (the front proxies them there) so crawlers find
@@ -58,11 +62,15 @@ export function buildApp() {
   app.use("/api/reservations", guestReservationRoutes);
 
   // Host
+  // A host editing a listing or its calendar changes what the public search
+  // and listing pages show, exactly as an admin edit does.
+  app.use("/api/host", invalidateOnWrite);
   app.use("/api/host/residences", hostResidencesRoutes);
   app.use("/api/host/residences", hostCalendarRoutes); // PATCH /:id/calendar
   app.use("/api/host/reservations", hostReservationRoutes);
 
   // Admin
+  app.use("/api/admin", invalidateOnWrite);
   app.use("/api/admin", adminRoutes);
 
   app.use(notFoundHandler);

@@ -14,15 +14,18 @@ import { getFaqsForPage } from "@/modules/seo/faq.service";
 import { getSeoTags, tagToWhere } from "@/lib/seoTags";
 import { expandSlugToLocationIds } from "@/lib/location";
 import type { Prisma } from "@prisma/client";
+import { cached, dropKeys, TTL } from "@/lib/cache";
 
 const SITE_ORIGIN = "https://lidomatrip.com";
 
 // The bundle changes only when an admin edits it or a listing is published.
-const TTL_MS = 60_000;
-let cache: { at: number; data: any } | null = null;
+// The cache is shared (Redis), not per-process: with more than one instance
+// running, a module-level copy meant each warmed separately and an admin edit
+// cleared only whichever one happened to serve the write.
+const CACHE_KEY = "home:page";
 
 export function invalidateHomeCache() {
-  cache = null;
+  return dropKeys(CACHE_KEY);
 }
 
 const PUBLISHED: Prisma.ResidenceWhereInput = {
@@ -185,8 +188,10 @@ async function buildRails() {
 }
 
 export async function getHomePageData() {
-  if (cache && Date.now() - cache.at < TTL_MS) return cache.data;
+  return cached(CACHE_KEY, TTL.home, buildHomePageData);
+}
 
+async function buildHomePageData() {
   const [
     settings,
     sections,
@@ -444,6 +449,5 @@ export async function getHomePageData() {
     faqs,
   };
 
-  cache = { at: Date.now(), data };
   return data;
 }

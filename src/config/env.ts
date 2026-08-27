@@ -38,6 +38,13 @@ export const env = {
     password: process.env.ADMIN_BOOTSTRAP_PASSWORD ?? "ChangeMe123!",
   },
 
+  // Shared cache. Unset locally — Liara's Redis is on a private network and a
+  // laptop cannot reach it — in which case every cache call becomes a no-op
+  // and reads go straight to the database. See lib/cache.ts.
+  redis: {
+    url: process.env.REDIS_URL ?? "",
+  },
+
   // Object storage (Liara, S3-compatible). When unset, uploads fall back to
   // local disk (see middleware/upload.ts) — fine for dev, not for production.
   objectStorage: {

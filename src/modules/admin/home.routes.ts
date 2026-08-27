@@ -186,7 +186,7 @@ router.patch(
       create: { id: 1, ...req.body },
       update: req.body,
     });
-    invalidateHomeCache();
+    await invalidateHomeCache();
     return ok(res, row);
   }),
 );
@@ -210,7 +210,7 @@ router.patch(
       where: { key: req.params.key },
       data: req.body,
     });
-    invalidateHomeCache();
+    await invalidateHomeCache();
     return ok(res, row);
   }),
 );
@@ -226,7 +226,7 @@ function collection(model: any, schema: z.ZodTypeAny) {
     validate(z.object({ body: schema })),
     asyncHandler(async (req, res) => {
       const row = await model.create({ data: req.body });
-      invalidateHomeCache();
+      await invalidateHomeCache();
       return ok(res, row, 201);
     }),
   );
@@ -239,7 +239,7 @@ function collection(model: any, schema: z.ZodTypeAny) {
         where: { id: Number(req.params.id) },
         data: req.body,
       });
-      invalidateHomeCache();
+      await invalidateHomeCache();
       return ok(res, row);
     }),
   );
@@ -248,7 +248,7 @@ function collection(model: any, schema: z.ZodTypeAny) {
     validate(idParamSchema),
     asyncHandler(async (req, res) => {
       const row = await model.delete({ where: { id: Number(req.params.id) } });
-      invalidateHomeCache();
+      await invalidateHomeCache();
       return ok(res, row);
     }),
   );

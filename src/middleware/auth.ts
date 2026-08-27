@@ -16,8 +16,14 @@ function extractToken(req: Request): string | null {
   if (header?.startsWith("Bearer ")) {
     return header.slice("Bearer ".length);
   }
-  if (req.cookies?.access_token) {
-    return req.cookies.access_token as string;
+  // Cookie fallback. The front normally sends the header, but EventSource
+  // cannot set one — the chat stream is authenticated by cookie or not at
+  // all. "session_id" is the name the front actually writes (see
+  // utilities/cookies.ts); "access_token" predates it and is kept so any
+  // client still using it keeps working.
+  const cookie = req.cookies?.session_id ?? req.cookies?.access_token;
+  if (cookie) {
+    return cookie as string;
   }
   return null;
 }

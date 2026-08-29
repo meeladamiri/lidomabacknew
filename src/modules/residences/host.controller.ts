@@ -3,6 +3,7 @@ import { ok, created } from "@/utils/response";
 import { AppError } from "@/lib/errors";
 import { fileToUrl } from "@/middleware/upload";
 import * as service from "./residences.service";
+import * as wizard from "./wizard.service";
 
 function hostId(req: Request): number {
   if (!req.user) throw AppError.unauthorized();
@@ -23,6 +24,10 @@ export async function stats(req: Request, res: Response) {
   const residenceId = req.query.residenceId ? Number(req.query.residenceId) : undefined;
   const data = await service.getHostResidenceStats(hostId(req), residenceId);
   return ok(res, data);
+}
+
+export async function wizardContent(_req: Request, res: Response) {
+  return ok(res, await wizard.getWizardContent());
 }
 
 export async function create(req: Request, res: Response) {

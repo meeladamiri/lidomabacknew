@@ -553,6 +553,9 @@ model Residence {
   @@index([hostId])
   @@index([locationId])
   @@index([state, published])
+  // Declared here because a migration already created it — search orders by
+  // importance. Without the declaration every `migrate diff` wants to drop it.
+  @@index([importance(sort: Desc)])
   @@map("residences")
 }
 
@@ -1509,4 +1512,58 @@ model Message {
   @@unique([conversationId, clientNonce])
   @@index([conversationId, id])
   @@map("messages")
+}
+
+// ---------- Host submission wizard content ----------
+
+// The tiles a host picks from in the wizard's first steps. These were three
+// hardcoded arrays in the front's bundle, with one shared placeholder image
+// for every option — so nobody could change a label, add a region, or give
+// the tiles real photographs without a deploy.
+enum WizardOptionKind {
+  RES_TYPE // step 1 — the kind of place
+  REGION // step 2 — which part of the country
+  RENT_TYPE // step 3 — whole place or per room
+}
+
+model WizardStep {
+  id Int @id @default(autoincrement())
+
+  // 0..14, matching the ?step= parameter the wizard runs on.
+  step Int @unique
+
+  title       String
+  // Shown under the title. The old wizard had nowhere to explain a step.
+  description String?
+  // The help panel behind the "?" button.
+  helpText    String? @map("help_text")
+  iconUrl     String? @map("icon_url")
+
+  isEnabled Boolean @default(true) @map("is_enabled")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("wizard_steps")
+}
+
+model WizardOption {
+  id   Int              @id @default(autoincrement())
+  kind WizardOptionKind
+
+  // The value written onto the residence. Renaming an option here renames it
+  // for new drafts only — existing residences keep the string they were saved
+  // with, which is why this is not a foreign key.
+  name        String
+  description String?
+  imageUrl    String? @map("image_url")
+
+  sortOrder Int     @default(0) @map("sort_order")
+  isActive  Boolean @default(true) @map("is_active")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([kind, sortOrder])
+  @@map("wizard_options")
 }

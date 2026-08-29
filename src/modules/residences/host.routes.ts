@@ -26,6 +26,10 @@ router.use(requireAuth, requireHost);
 router.get("/", asyncHandler(controller.list));
 router.post("/", validate(createResidenceSchema), asyncHandler(controller.create));
 router.get("/stats", asyncHandler(controller.stats));
+
+// The wizard's own copy: titles, descriptions and the option tiles. Fixed
+// path, so it is declared before "/:id" could swallow it.
+router.get("/wizard-content", asyncHandler(controller.wizardContent));
 router.get("/:id", validate(residenceIdParamSchema), asyncHandler(controller.getOne));
 router.patch("/:id", validate(updateSpecsSchema), asyncHandler(controller.updateSpecs));
 router.patch("/:id/amenities", validate(updateAmenitiesSchema), asyncHandler(controller.updateAmenities));

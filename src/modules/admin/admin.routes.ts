@@ -46,6 +46,7 @@ import sitemapRouter from "./sitemap.routes";
 import faqRouter from "./faq.routes";
 import homeAdminRouter from "./home.routes";
 import conversationsAdminRouter from "./conversations.routes";
+import wizardAdminRouter from "./wizard.routes";
 
 const router = Router();
 router.use(requireAuth, requireAdmin);
@@ -139,6 +140,7 @@ router.use(faqRouter);
 router.use(homeAdminRouter);
 
 router.use("/conversations", conversationsAdminRouter);
+router.use("/wizard", wizardAdminRouter);
 
 router.use("/amenities", buildCatalogRouter(service.amenities, upsertAmenitySchema));
 router.use("/rules", buildCatalogRouter(service.rules, upsertRuleSchema));

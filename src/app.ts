@@ -4,7 +4,7 @@ import helmet from "helmet";
 import morgan from "morgan";
 import compression from "compression";
 import cookieParser from "cookie-parser";
-import { env, isProd } from "@/config/env";
+import { env, isProd, reportQuotedEnv } from "@/config/env";
 import { errorHandler, notFoundHandler } from "@/middleware/error";
 import { invalidateOnWrite } from "@/middleware/cacheInvalidation";
 import { cacheStatus, initCache } from "@/lib/cache";
@@ -27,6 +27,7 @@ import conversationRoutes from "@/modules/conversations/conversations.routes";
 export function buildApp() {
   const app = express();
 
+  reportQuotedEnv();
   initCache();
   // Chat fan-out across instances. Like the cache, a no-op without Redis.
   initPubSub();

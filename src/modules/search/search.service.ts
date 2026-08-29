@@ -399,6 +399,32 @@ export async function getSearchPageData(slug: string, tags?: string[]) {
     .filter((t) => t.isSuggested)
     .sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id);
 
+  // Drop the suggestions that would land on an empty page.
+  //
+  // Shiraz has neither a coast nor a forest, but offered both "اجاره ویلا و
+  // سوئیت ساحلی در شیراز" and the forest equivalent — links to zero results,
+  // and two thin pages for a crawler to find and judge the rest of the site by.
+  // Which tags are empty depends entirely on the place, so it is counted rather
+  // than guessed.
+  //
+  // At most one count per suggested tag (14 today), and only on a cache miss —
+  // the whole response is cached for five minutes under
+  // search:page:<slug>:<tags>. They run in parallel.
+  const suggestedCounts = await Promise.all(
+    suggested.map((t) =>
+      prisma.residence.count({
+        where: {
+          state: "PUBLISHED",
+          published: true,
+          ...(placeIds?.length ? { locationId: { in: placeIds } } : {}),
+          AND: tagToWhere(t),
+        },
+      })
+    )
+  );
+
+  const nonEmptySuggested = suggested.filter((_, i) => suggestedCounts[i] > 0);
+
   return {
     city: city ? { name: city.name, title_en: city.titleEn } : null,
     province: province
@@ -422,13 +448,13 @@ export async function getSearchPageData(slug: string, tags?: string[]) {
     content,
     canonical,
     related_tags: placeName
-      ? suggested.map((t) => ({
+      ? nonEmptySuggested.map((t) => ({
           tag: t.key,
           cat_title: placeSlug,
           cat_name: placeName,
           title: t.name,
         }))
-      : suggested.map((t) => ({
+      : nonEmptySuggested.map((t) => ({
           tag: t.key,
           cat_title: null,
           cat_name: null,

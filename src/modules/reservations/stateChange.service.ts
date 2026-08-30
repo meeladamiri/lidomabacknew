@@ -7,6 +7,7 @@ import * as reservationSettings from "@/modules/settings/reservationSettings.ser
 import * as notify from "@/modules/notifications/events";
 import { onReservationStateChanged } from "@/modules/conversations/bookingHooks";
 import { releaseCalendarDays } from "./reservations.service";
+import * as activity from "@/modules/activity/activity.service";
 
 /**
  * Moving a booking between states by hand.
@@ -89,9 +90,29 @@ export async function logStateChange(input: {
   try {
     if (input.tx) {
       await input.tx.reservationStateChange.create({ data });
-      return;
+    } else {
+      await prisma.reservationStateChange.create({ data });
     }
-    await prisma.reservationStateChange.create({ data });
+
+    // The same event, in the one timeline the panel reads. Written here rather
+    // than at each call site, so no transition can reach the state table and
+    // miss the log.
+    activity.log({
+      kind: "STATE_CHANGE",
+      reservationId: input.reservationId,
+      summary:
+        (input.fromState ? `${STATE_LABELS[input.fromState]} ← ` : "") +
+        STATE_LABELS[input.toState] +
+        (input.note ? ` — ${input.note}` : ""),
+      details: {
+        from: input.fromState,
+        to: input.toState,
+        note: input.note ?? null,
+      } as never,
+      actorId: input.changedById,
+      actorName: input.changedByName,
+      source: input.source ?? "MANUAL",
+    });
   } catch (error) {
     console.warn(
       `[state-log] reservation ${input.reservationId} → ${input.toState} not logged:`,

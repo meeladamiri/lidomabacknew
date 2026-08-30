@@ -361,6 +361,7 @@ model User {
   notifications         Notification[]
   wallet                Wallet?
   hostDeposits          HostDeposit[]             @relation("HostDeposits")
+  activityLogs          ActivityLog[]             @relation("ActivityAbout")
   settlementRequests    SettlementRequest[]       @relation("SettlementRequests")
   processedSettlements  SettlementRequest[]       @relation("ProcessedSettlements")
   sentMessages          Message[]                 @relation("SentMessages")
@@ -826,6 +827,7 @@ model Reservation {
 
   hostDeposits HostDeposit[]
   stateChanges ReservationStateChange[]
+  activityLogs ActivityLog[]
 
   voucherCode String? @map("voucher_code")
 
@@ -2004,4 +2006,81 @@ model ReservationStateChange {
 
   @@index([reservationId, id])
   @@map("reservation_state_changes")
+}
+
+/// What kind of thing happened.
+///
+/// One table rather than one per kind, because the screen that reads it is a
+/// single timeline: a call, a status change and a sent voucher are the same
+/// question ("what happened to this booking") asked once.
+enum ActivityKind {
+  CALL // تماس — logged by hand
+  NOTE // یادداشت — logged by hand
+  STATE_CHANGE // وضعیت رزرو عوض شد
+  FIELD_CHANGE // تاریخ، قیمت یا چیز دیگری عوض شد
+  MESSAGE_SENT // پیامی برای مهمان یا میزبان رفت
+}
+
+enum CallDirection {
+  INBOUND // تماس ورودی
+  OUTBOUND // تماس خروجی
+}
+
+enum CallParty {
+  GUEST
+  HOST
+  OTHER
+}
+
+/// The activity and communication log.
+///
+/// Immutable: rows are written and never changed. That is enforced by a
+/// database rule in the migration, not by the absence of an update endpoint —
+/// "nothing calls update" is a property of today's code, and this needs to be
+/// a property of the data.
+///
+/// Everything is optional except `kind` and `summary`, because the log has to
+/// accept a call about a guest with no booking as readily as a price change on
+/// one. `summary` is rendered when the row is written and stored: a log that
+/// re-renders itself from ids will quietly change what it said once the
+/// booking it points at moves on.
+model ActivityLog {
+  id   Int          @id @default(autoincrement())
+  kind ActivityKind
+
+  /// What it is about. A call can be about a person and no booking.
+  reservationId Int?         @map("reservation_id")
+  reservation   Reservation? @relation(fields: [reservationId], references: [id], onDelete: SetNull)
+  userId        Int?         @map("user_id")
+  user          User?        @relation("ActivityAbout", fields: [userId], references: [id], onDelete: SetNull)
+  residenceId   Int?         @map("residence_id")
+
+  /// CALL only.
+  callDirection CallDirection? @map("call_direction")
+  callParty     CallParty?     @map("call_party")
+  /// Answered, no answer, wrong number — free text, because the list of ways a
+  /// phone call can go is longer than any enum anyone will maintain.
+  callOutcome   String?        @map("call_outcome")
+
+  /// One line, already readable, always present.
+  summary String
+  /// Before/after for FIELD_CHANGE, and anything else structured a kind needs.
+  details Json?
+
+  /// Who did it. Name copied, not joined — see HostDeposit for why.
+  actorId   Int?    @map("actor_id")
+  actorName String? @map("actor_name")
+
+  /// MANUAL for a person; the flow or job name for anything automatic.
+  source String @default("MANUAL")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // The timeline reads by booking, newest first. The other three cover the
+  // filters the panel offers: by person, by kind over a date range, by admin.
+  @@index([reservationId, id])
+  @@index([userId, id])
+  @@index([kind, createdAt])
+  @@index([actorId, createdAt])
+  @@map("activity_logs")
 }

@@ -54,6 +54,8 @@ import wizardAdminRouter from "./wizard.routes";
 import cacheAdminRouter from "./cache.routes";
 import walletAdminRouter from "./wallet.routes";
 import reservationSettingsRouter from "./reservationSettings.routes";
+import activityRouter from "./activity.routes";
+import reservationActionsRouter from "./reservationActions.routes";
 
 const router = Router();
 router.use(requireAuth, requireAdmin);
@@ -181,6 +183,8 @@ router.use("/wizard", wizardAdminRouter);
 router.use("/cache", cacheAdminRouter);
 router.use("/wallet", walletAdminRouter);
 router.use("/settings", reservationSettingsRouter);
+router.use("/activity", activityRouter);
+router.use("/reservations", reservationActionsRouter);
 
 router.use("/amenities", buildCatalogRouter(service.amenities, upsertAmenitySchema));
 router.use("/rules", buildCatalogRouter(service.rules, upsertRuleSchema));

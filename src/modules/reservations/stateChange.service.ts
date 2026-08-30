@@ -197,6 +197,12 @@ export async function changeState(input: ChangeStateInput) {
   if (to === "DONE") {
     data.paidAmount = reservation.totalAmount + (reservation.guestCommission ?? 0);
     data.remainingAmount = 0;
+    // The deposit panel reads this. Leaving it null on a booking that already
+    // has a host share means the panel has to guess, and every other reader
+    // has to remember to guess the same way.
+    if (reservation.hostShare != null) {
+      data.clearRemainder = reservation.hostShare;
+    }
   }
 
   const updated = await prisma.$transaction(async (tx) => {

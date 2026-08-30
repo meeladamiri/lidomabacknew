@@ -56,6 +56,7 @@ import walletAdminRouter from "./wallet.routes";
 import reservationSettingsRouter from "./reservationSettings.routes";
 import activityRouter from "./activity.routes";
 import reservationActionsRouter from "./reservationActions.routes";
+import adminCalendarRouter from "./calendar.routes";
 
 const router = Router();
 router.use(requireAuth, requireAdmin);
@@ -185,6 +186,7 @@ router.use("/wallet", walletAdminRouter);
 router.use("/settings", reservationSettingsRouter);
 router.use("/activity", activityRouter);
 router.use("/reservations", reservationActionsRouter);
+router.use(adminCalendarRouter);
 
 router.use("/amenities", buildCatalogRouter(service.amenities, upsertAmenitySchema));
 router.use("/rules", buildCatalogRouter(service.rules, upsertRuleSchema));

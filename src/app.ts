@@ -9,6 +9,7 @@ import { errorHandler, notFoundHandler } from "@/middleware/error";
 import { invalidateOnWrite } from "@/middleware/cacheInvalidation";
 import { cacheStatus, initCache } from "@/lib/cache";
 import { schedulerStatus } from "@/lib/scheduler";
+import depositRoutes from "@/modules/deposit/deposit.routes";
 import { initPubSub } from "@/lib/pubsub";
 import { UPLOAD_ROOT } from "@/middleware/upload";
 
@@ -83,6 +84,11 @@ export function buildApp() {
   app.use("/api/host/reservations", hostReservationRoutes);
 
   // Admin
+  // The finance deposit panel lives at the site root, not under /admin, but
+  // it writes money and so gets the same cache invalidation.
+  app.use("/api/deposit", invalidateOnWrite);
+  app.use("/api/deposit", depositRoutes);
+
   app.use("/api/admin", invalidateOnWrite);
   app.use("/api/admin", adminRoutes);
 

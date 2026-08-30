@@ -763,6 +763,21 @@ model Reservation {
   guestCommission Float? @map("guest_commission")
   settledAmount   Float  @default(0) @map("settled_amount")
 
+  /// مانده واریز — what the site still owes the host on this booking.
+  ///
+  /// Odoo's `x_clear_remainder`, and it is a stored figure rather than
+  /// `hostShare − settledAmount` because finance can override it with a
+  /// reason ("ویرایش مانده واریز"). Once someone does, the two legitimately
+  /// disagree, and the override is the one that is true.
+  ///
+  /// Null means never initialised — fall back to the subtraction.
+  clearRemainder Float? @map("clear_remainder")
+
+  /// توضیحات تیم فروش — a note the sales team writes on the booking, shown in
+  /// the deposit panel. Not the cancellation reason and not the guest's; this
+  /// is internal.
+  salesDescription String? @map("sales_description")
+
   // The rates these amounts came from, kept so an old reservation can explain
   // itself after the settings change.
   commissionPercent      Float? @map("commission_percent")
@@ -1840,8 +1855,26 @@ model HostDeposit {
   reservationId Int?         @map("reservation_id")
   reservation   Reservation? @relation(fields: [reservationId], references: [id], onDelete: SetNull)
 
+  /// What this row is. Odoo's deposit panel offered exactly three settlement
+  /// methods plus an override, and they are not interchangeable:
+  ///
+  ///   REMAINDER  مانده واریز      — paying off what is left
+  ///   DEPOSIT    واریز بیعانه     — paying part of it up front
+  ///   HOST_DEBIT کسر بدهی میزبان  — cancelling what the host owes us against
+  ///                                 what we owe them; no money leaves the bank
+  ///   ADJUSTMENT ویرایش مانده واریز — a correction to the remaining figure,
+  ///                                 not a payment at all
+  kind HostDepositKind @default(REMAINDER)
+
   amount      Float
   depositedAt DateTime @default(now()) @map("deposited_at")
+
+  /// shaba | card — how it was sent. Null for the kinds that move no money.
+  payWith String? @map("pay_with")
+
+  /// The staff member who recorded it, by name, kept as text: the row must
+  /// still say who did this after the account is renamed or deactivated.
+  payerName String? @map("payer_name")
 
   /// شماره تراکنش / حساب فرستنده — what makes this auditable against a bank
   /// statement. Without them a deposit row is just an assertion.
@@ -1856,4 +1889,11 @@ model HostDeposit {
   @@index([hostId, id])
   @@index([reservationId])
   @@map("host_deposits")
+}
+
+enum HostDepositKind {
+  REMAINDER // مانده واریز
+  DEPOSIT // واریز بیعانه
+  HOST_DEBIT // کسر بدهی میزبان
+  ADJUSTMENT // ویرایش مانده واریز — a correction, not a payment
 }

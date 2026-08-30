@@ -14,6 +14,7 @@ import { generateReference } from "@/utils/reference";
 import { RESERVATION_INCLUDE, releaseCalendarDays } from "@/modules/reservations/reservations.service";
 import * as residencesService from "@/modules/residences/residences.service";
 import * as notify from "@/modules/notifications/events";
+import * as walletService from "@/modules/wallet/wallet.service";
 
 export async function getDashboardStats() {
   const [
@@ -942,11 +943,77 @@ export async function updateReservationByAdmin(
   if (reservation.state !== "SECOND_PAYMENT") {
     throw AppError.badRequest("این رزرو در وضعیت قابل تکمیل نیست");
   }
-  return prisma.reservation.update({
+  const done = await prisma.reservation.update({
     where: { id },
     data: { state: "DONE", paidAmount: reservation.totalAmount, remainingAmount: 0 },
     include: RESERVATION_INCLUDE,
   });
+
+  // The host's share lands in the wallet, held rather than withdrawable: the
+  // booking is paid for, but the stay has not happened yet and a cancellation
+  // still has to be able to take it back. `releaseMaturedEarnings` moves it to
+  // the withdrawable balance once the guest has checked out.
+  //
+  // `hostShare` comes from the Odoo migration and is already net of
+  // commission, so nothing is recomputed here — a second opinion on what the
+  // host is owed is exactly how the two numbers start disagreeing.
+  //
+  // Awaited, unlike the chat and notification hooks: this one is money. If it
+  // fails, marking the reservation done should fail too, so the two cannot end
+  // up out of step.
+  if (done.hostShare && done.hostShare > 0) {
+    await walletService.credit({
+      userId: done.hostId,
+      kind: "BOOKING_INCOME",
+      amount: done.hostShare,
+      description: `درآمد رزرو ${done.reference}`,
+      reservationId: done.id,
+      blocked: true,
+    });
+  }
+
+  return done;
+}
+
+/**
+ * Moves held earnings to the withdrawable balance for stays that have ended.
+ *
+ * Split from markDone because it happens on a date, not on an action. There is
+ * no scheduler in this project yet, so it is exposed to the admin panel and
+ * meant to be called on a cron once there is one — it is idempotent, so
+ * running it twice in a day costs one query and changes nothing.
+ */
+export async function releaseMaturedEarnings() {
+  const matured = await prisma.reservation.findMany({
+    where: {
+      state: "DONE",
+      endDate: { lt: new Date() },
+      // Only the ones whose income is still held.
+      walletTransactions: { some: { kind: "BOOKING_INCOME" } },
+    },
+    select: { id: true, hostId: true, reference: true, hostShare: true },
+    take: 200,
+  });
+
+  let released = 0;
+  for (const reservation of matured) {
+    const amount = reservation.hostShare ?? 0;
+    if (amount <= 0) continue;
+
+    try {
+      await walletService.release(
+        reservation.hostId,
+        amount,
+        `آزادسازی درآمد رزرو ${reservation.reference}`
+      );
+      released++;
+    } catch {
+      // Already released, or the held balance no longer covers it because a
+      // refund took it back. Neither is an error worth failing the batch for.
+    }
+  }
+
+  return { checked: matured.length, released };
 }
 
 // ---------- Filter presets ----------

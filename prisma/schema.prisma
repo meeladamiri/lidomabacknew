@@ -1,8 +1,9 @@
 // LidomaTrip backend — Phase 1 schema
 // Scope: auth, users, residences/rooms, amenities/rules, calendar & pricing,
 // search support, reservations, favourites, host bank info, admin.
-// Phase 2 (not modeled yet): wallet transactions, host payouts/settlements,
-// order-scoped chat, reviews, complaints/contact-form, support chat, vouchers.
+// Phase 2 (not modeled yet):
+// complaints/contact-form, vouchers. (Chat, reviews, support and the wallet
+// with host payouts/settlements are modeled below.)
 
 generator client {
   provider = "prisma-client-js"
@@ -344,6 +345,9 @@ model User {
 
   conversations         ConversationParticipant[]
   notifications         Notification[]
+  wallet                Wallet?
+  settlementRequests    SettlementRequest[]       @relation("SettlementRequests")
+  processedSettlements  SettlementRequest[]       @relation("ProcessedSettlements")
   sentMessages          Message[]                 @relation("SentMessages")
   assignedConversations Conversation[]            @relation("AssignedConversations")
 
@@ -745,6 +749,7 @@ model Reservation {
   review       Review?
   conversation Conversation?
 
+  walletTransactions WalletTransaction[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1628,4 +1633,114 @@ model Notification {
   // The list query: a user's rows, newest first, filtered by archived state.
   @@index([userId, archivedAt, id])
   @@map("notifications")
+}
+
+// ---------------------------------------------------------------------- wallet
+
+enum WalletTransactionKind {
+  BOOKING_INCOME // a host's share of a completed stay
+  BOOKING_REFUND // money returned to a guest
+  SETTLEMENT // paid out to a bank account
+  GIFT // promotional credit
+  ADJUSTMENT // a correction made by an admin
+}
+
+enum WalletTransactionStatus {
+  PENDING
+  DONE
+  FAILED
+}
+
+enum SettlementStatus {
+  REQUESTED
+  APPROVED
+  PAID
+  REJECTED
+}
+
+// A user's money, split three ways because the UI and the rules differ.
+//
+// balance        withdrawable now
+// blockedBalance earned but held until the stay ends and the refund window closes
+// giftBalance    promotional credit; spendable, never withdrawable
+//
+// The balances are stored rather than summed from transactions on every read.
+// They are only ever written inside the same database transaction that writes
+// the ledger row, so the two cannot drift; and this is read on every wallet
+// page load, where summing a host's whole history would get slower every month.
+model Wallet {
+  id     Int  @id @default(autoincrement())
+  userId Int  @unique @map("user_id")
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  balance        Float @default(0)
+  blockedBalance Float @default(0) @map("blocked_balance")
+  giftBalance    Float @default(0) @map("gift_balance")
+
+  transactions WalletTransaction[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("wallets")
+}
+
+// The ledger. Append-only: a correction is another row, never an edit.
+model WalletTransaction {
+  id       Int    @id @default(autoincrement())
+  walletId Int    @map("wallet_id")
+  wallet   Wallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  kind   WalletTransactionKind
+  status WalletTransactionStatus @default(DONE)
+
+  // Signed: positive is money in, negative is money out. One column rather
+  // than a debit/credit pair keeps the running total a plain sum.
+  amount Float
+
+  // The balance this row produced, so a statement can be rendered without
+  // replaying every earlier row.
+  balanceAfter Float @map("balance_after")
+
+  description   String
+  failureReason String? @map("failure_reason")
+
+  reservationId Int?         @map("reservation_id")
+  reservation   Reservation? @relation(fields: [reservationId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([walletId, id])
+  @@map("wallet_transactions")
+}
+
+// A request to move money out to a bank account.
+model SettlementRequest {
+  id     Int  @id @default(autoincrement())
+  userId Int  @map("user_id")
+  user   User @relation("SettlementRequests", fields: [userId], references: [id], onDelete: Cascade)
+
+  amount Float
+  status SettlementStatus @default(REQUESTED)
+
+  // Copied at request time, not read from the bank account later. A host who
+  // edits their card after asking for a payout must not silently redirect a
+  // payment that is already being processed, and the record has to show where
+  // the money was actually sent.
+  cardNumber  String? @map("card_number")
+  shabaNumber String? @map("shaba_number")
+  ownerName   String? @map("owner_name")
+
+  adminNote     String? @map("admin_note")
+  processedById Int?    @map("processed_by_id")
+  processedBy   User?   @relation("ProcessedSettlements", fields: [processedById], references: [id], onDelete: SetNull)
+
+  processedAt DateTime? @map("processed_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([status, id])
+  @@index([userId, id])
+  @@map("settlement_requests")
 }

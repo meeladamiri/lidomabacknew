@@ -24,6 +24,7 @@ import seoRoutes from "@/modules/seo/seo.routes";
 import homeRoutes from "@/modules/home/home.routes";
 import conversationRoutes from "@/modules/conversations/conversations.routes";
 import notificationRoutes from "@/modules/notifications/notifications.routes";
+import walletRoutes from "@/modules/wallet/wallet.routes";
 
 export function buildApp() {
   const app = express();
@@ -67,6 +68,7 @@ export function buildApp() {
   app.use("/api/favourites", favouritesRoutes);
   app.use("/api/conversations", conversationRoutes);
   app.use("/api/notifications", notificationRoutes);
+  app.use("/api/wallet", walletRoutes);
   app.use("/api/reservations", guestReservationRoutes);
 
   // Host

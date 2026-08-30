@@ -48,6 +48,7 @@ import homeAdminRouter from "./home.routes";
 import conversationsAdminRouter from "./conversations.routes";
 import wizardAdminRouter from "./wizard.routes";
 import cacheAdminRouter from "./cache.routes";
+import walletAdminRouter from "./wallet.routes";
 
 const router = Router();
 router.use(requireAuth, requireAdmin);
@@ -143,6 +144,7 @@ router.use(homeAdminRouter);
 router.use("/conversations", conversationsAdminRouter);
 router.use("/wizard", wizardAdminRouter);
 router.use("/cache", cacheAdminRouter);
+router.use("/wallet", walletAdminRouter);
 
 router.use("/amenities", buildCatalogRouter(service.amenities, upsertAmenitySchema));
 router.use("/rules", buildCatalogRouter(service.rules, upsertRuleSchema));

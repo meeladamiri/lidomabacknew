@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { AppError } from "@/lib/errors";
 import { onReservationCreated, onReservationStateChanged } from "@/modules/conversations/bookingHooks";
+import * as notify from "@/modules/notifications/events";
 import { generateReference } from "@/utils/reference";
 import { calculateStayPrice } from "./pricing";
 import { resolvePublicResidenceId } from "@/lib/publicId";
@@ -290,6 +291,7 @@ export async function createReservation(
   // Opens the host <-> guest thread with a summary of what was just booked.
   // Detached: chat is never a reason a booking fails.
   onReservationCreated(reservation.id);
+  notify.onReservationCreated(reservation.id);
 
   return {
     reservation,
@@ -398,6 +400,8 @@ export async function acceptReservation(hostId: number, id: number) {
 
   onReservationStateChanged(id, "BOOKING_APPROVED");
 
+  notify.onReservationStateChanged(id, "BOOKING_APPROVED");
+
   return accepted;
 }
 
@@ -439,6 +443,7 @@ export async function rejectReservation(
     reason: updated.cancelReason,
     cancelledBy: updated.cancelledBy,
   });
+  notify.onReservationStateChanged(id, "BOOKING_CANCELLED");
 
   return updated;
 }
@@ -481,6 +486,7 @@ export async function hostCancelReservation(
     reason: updated.cancelReason,
     cancelledBy: updated.cancelledBy,
   });
+  notify.onReservationStateChanged(id, "BOOKING_CANCELLED");
 
   return updated;
 }
@@ -545,6 +551,8 @@ export async function submitReview(
   });
 
   await recomputeResidenceRating(reservation.residenceId);
+
+  notify.onReviewCreated(review.id);
   return review;
 }
 
@@ -625,6 +633,7 @@ export async function guestCancelReservation(
     reason: updated.cancelReason,
     cancelledBy: updated.cancelledBy,
   });
+  notify.onReservationStateChanged(id, "BOOKING_CANCELLED");
 
   return updated;
 }

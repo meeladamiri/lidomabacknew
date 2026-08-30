@@ -343,6 +343,7 @@ model User {
   reviews             Review[]
 
   conversations         ConversationParticipant[]
+  notifications         Notification[]
   sentMessages          Message[]                 @relation("SentMessages")
   assignedConversations Conversation[]            @relation("AssignedConversations")
 
@@ -1566,4 +1567,65 @@ model WizardOption {
 
   @@index([kind, sortOrder])
   @@map("wizard_options")
+}
+
+// ---------------------------------------------------------------- notifications
+
+enum NotificationKind {
+  // Guest side
+  BOOKING_REQUESTED
+  BOOKING_APPROVED
+  BOOKING_REJECTED
+  BOOKING_CANCELLED
+  BOOKING_EXPIRED
+  BOOKING_COMPLETED
+  // Host side
+  BOOKING_NEW_REQUEST
+  REVIEW_RECEIVED
+  RESIDENCE_PUBLISHED
+  RESIDENCE_REJECTED
+  // Either
+  MESSAGE_RECEIVED
+  ACCOUNT_VERIFIED
+}
+
+// One line in a user's notification list.
+//
+// The title and body are rendered at write time rather than looked up from a
+// template at read time. A booking's price and dates can change after the
+// notification fires, and "your booking was approved" must keep saying what it
+// said when it was sent — a notification is a record of an event, not a live
+// view of the thing it happened to.
+//
+// linkUrl is where tapping it goes. Storing the destination rather than
+// deriving it from kind + entityId keeps the front from having to know every
+// routing rule, and lets one kind point at different places for host and guest.
+model Notification {
+  id     Int  @id @default(autoincrement())
+  userId Int  @map("user_id")
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  kind  NotificationKind
+  title String
+  body  String
+
+  linkUrl String? @map("link_url")
+
+  // What it is about. Loose on purpose — these point at several tables, and a
+  // real foreign key per kind would mean a column per kind.
+  entityType String? @map("entity_type")
+  entityId   Int?    @map("entity_id")
+
+  readAt     DateTime? @map("read_at")
+  archivedAt DateTime? @map("archived_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  // One notification per event per user. The same reservation moving to
+  // APPROVED twice (a retry, a double-click in the panel) must not produce two
+  // lines. Enforced by the database rather than by a check-then-insert, which
+  // two concurrent requests would both pass.
+  @@unique([userId, kind, entityType, entityId])
+  // The list query: a user's rows, newest first, filtered by archived state.
+  @@index([userId, archivedAt, id])
+  @@map("notifications")
 }

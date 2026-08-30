@@ -13,6 +13,7 @@ import { RESIDENCE_TYPES, RESIDENCE_TYPE_LABEL } from "@/lib/residenceType";
 import { generateReference } from "@/utils/reference";
 import { RESERVATION_INCLUDE, releaseCalendarDays } from "@/modules/reservations/reservations.service";
 import * as residencesService from "@/modules/residences/residences.service";
+import * as notify from "@/modules/notifications/events";
 
 export async function getDashboardStats() {
   const [
@@ -762,10 +763,18 @@ export async function setResidenceExtraCities(id: number, cityIds: number[]) {
 }
 
 export async function setResidenceState(id: number, state: ResidenceState) {
-  return prisma.residence.update({
+  const updated = await prisma.residence.update({
     where: { id },
     data: { state, published: state === "PUBLISHED" },
   });
+
+  // The host asked for a decision and is waiting on it. Only the two states
+  // that answer that question notify; the rest are internal bookkeeping.
+  if (state === "PUBLISHED" || state === "REJECTED") {
+    notify.onResidenceReviewed(id, state === "PUBLISHED");
+  }
+
+  return updated;
 }
 
 // ---------- Residence editing (admin) ----------

@@ -94,6 +94,13 @@ enum AmenityFieldType {
 }
 
 enum ReservationState {
+  /// در انتظار ثبت درخواست — started but not submitted to the host yet.
+  ///
+  /// Odoo had it (`x_temp_state = draft`, 716 bookings) and this system did
+  /// not, which left support no way to describe a booking that exists but has
+  /// not been sent anywhere. Nothing creates it automatically; it is reachable
+  /// by hand, the same way it was.
+  DRAFT
   HOST_APPROVAL
   SECOND_PAYMENT
   DONE
@@ -818,6 +825,7 @@ model Reservation {
   guestCommissionPercent Float? @map("guest_commission_percent")
 
   hostDeposits HostDeposit[]
+  stateChanges ReservationStateChange[]
 
   voucherCode String? @map("voucher_code")
 
@@ -1960,4 +1968,40 @@ enum CancelNotifyMode {
   ONLY_GUEST // فقط مهمان
   ONLY_HOST // فقط میزبان
   NONE // هیچ‌کدام
+}
+
+/// Every move a booking makes between states, and why.
+///
+/// A reservation's state is one column, so it only ever says where a booking
+/// is now. The question support actually asks is how it got there — who moved
+/// it, when, and what they were told. That answer used to exist only in
+/// somebody's memory.
+///
+/// Written for automatic transitions too, not just hand-made ones. A timeline
+/// that shows only what people did, with the system's own moves missing, reads
+/// as though nothing happened in between.
+model ReservationStateChange {
+  id            Int         @id @default(autoincrement())
+  reservationId Int         @map("reservation_id")
+  reservation   Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+
+  fromState ReservationState? @map("from_state")
+  toState   ReservationState  @map("to_state")
+
+  /// Required for a manual change. The whole point of the audit line is the
+  /// sentence a person had to write before the state would move.
+  note String?
+
+  /// Who moved it. The name is copied, not joined: the row must still say who
+  /// did this after the account is renamed or deleted.
+  changedById   Int?    @map("changed_by_id")
+  changedByName String? @map("changed_by_name")
+
+  /// MANUAL for a person, and the job or flow name for everything else.
+  source String @default("MANUAL")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([reservationId, id])
+  @@map("reservation_state_changes")
 }

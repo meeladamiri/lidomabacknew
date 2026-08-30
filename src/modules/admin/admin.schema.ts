@@ -172,6 +172,19 @@ export const updateReservationSchema = z.object({
  * is available to a guest or a host cancelling their own booking — support
  * decides those, which is what stops the penalty ladder being a suggestion.
  */
+export const changeStateSchema = z.object({
+  params: z.object({ id: z.coerce.number().int() }),
+  body: z.object({
+    // CANCEL is accepted here only so the service can answer with a sentence
+    // that says where to go instead. Leaving it out of the enum produced a
+    // generic "invalid input", which tells the operator nothing.
+    toState: z.enum(["DRAFT", "HOST_APPROVAL", "SECOND_PAYMENT", "DONE", "EXPIRED", "CANCEL"]),
+    // Required by the schema, not just the form: the audit line is the whole
+    // reason this endpoint exists, and an optional reason is one left empty.
+    note: z.string().min(3).max(1000),
+  }),
+});
+
 export const adminCancelSchema = z.object({
   params: z.object({ id: z.coerce.number().int() }),
   body: z.object({

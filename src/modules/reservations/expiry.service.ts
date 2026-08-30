@@ -4,6 +4,7 @@ import { onReservationStateChanged } from "@/modules/conversations/bookingHooks"
 import * as notify from "@/modules/notifications/events";
 import { releaseCalendarDays } from "./reservations.service";
 import { deadlineIn, getSettings } from "@/modules/settings/reservationSettings.service";
+import { logStateChange } from "./stateChange.service";
 
 /**
  * Expiring bookings nobody acted on.
@@ -46,6 +47,16 @@ export async function expireOverdue(limit = 200) {
       });
 
       if (count === 0) continue;
+
+      // Logged like any other move, so the timeline does not show a booking
+      // that expired with nothing saying when or why.
+      await logStateChange({
+        reservationId: reservation.id,
+        fromState: null,
+        toState: "EXPIRED",
+        note: "مهلت پاسخ به پایان رسید",
+        source: "JOB:expire-bookings",
+      });
 
       await releaseCalendarDays(reservation.residenceId, reservation.startDate, reservation.endDate);
 

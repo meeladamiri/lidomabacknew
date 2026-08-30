@@ -6,6 +6,7 @@ import * as notify from "@/modules/notifications/events";
 import * as walletService from "@/modules/wallet/wallet.service";
 import { getSettings } from "@/modules/settings/reservationSettings.service";
 import { releaseCalendarDays } from "./reservations.service";
+import { logStateChange } from "./stateChange.service";
 
 /**
  * Cancelling a booking.
@@ -335,6 +336,16 @@ export async function cancelReservation(input: CancelInput) {
         clearRemainder: round(Math.max(money.hostShare - existing.settledAmount, 0)),
       },
       select: { id: true, reference: true, guestId: true, hostId: true },
+    });
+
+    await logStateChange({
+      reservationId: existing.id,
+      fromState: existing.state,
+      toState: "CANCEL",
+      note: input.reason,
+      changedById: input.actorId ?? null,
+      source: input.actorId ? "CANCEL" : "CANCEL:SYSTEM",
+      tx,
     });
 
     // The guest's money back. There is no payment gateway, so a refund is a

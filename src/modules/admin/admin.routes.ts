@@ -21,6 +21,7 @@ import {
   updateReservationSchema,
   setReservationExpirySchema,
   adminCancelSchema,
+  changeStateSchema,
   cancelQuoteSchema,
   updateUserSchema,
   upsertAmenitySchema,
@@ -127,6 +128,18 @@ router.patch(
   "/reservations/:id",
   validate(updateReservationSchema),
   asyncHandler(controller.updateReservation)
+);
+
+router.post(
+  "/reservations/:id/state",
+  validate(changeStateSchema),
+  asyncHandler(controller.changeReservationState)
+);
+
+router.get(
+  "/reservations/:id/state",
+  validate(idParamSchema),
+  asyncHandler(controller.reservationStateHistory)
 );
 
 router.post(

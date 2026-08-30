@@ -5,6 +5,8 @@ import { fileToUrl } from "@/middleware/upload";
 import * as service from "./admin.service";
 import * as expiryService from "@/modules/reservations/expiry.service";
 import * as cancellationService from "@/modules/reservations/cancellation.service";
+import * as stateService from "@/modules/reservations/stateChange.service";
+import type { ReservationState } from "@prisma/client";
 
 function getOptionalNumber(value: unknown): number | undefined {
   if (typeof value !== "string" || value.trim() === "") {
@@ -345,4 +347,36 @@ export async function cancelQuote(req: Request, res: Response) {
       penaltyOverride: q.penaltyOverride != null ? Number(q.penaltyOverride) : null,
     })
   );
+}
+
+/** Moves a booking between states by hand, with the reason attached. */
+export async function changeReservationState(req: Request, res: Response) {
+  const { id } = req.params as unknown as { id: number };
+  const { toState, note } = req.body as { toState: ReservationState; note: string };
+
+  return ok(
+    res,
+    await stateService.changeState({
+      reservationId: id,
+      toState,
+      note,
+      actorId: req.user!.sub,
+    })
+  );
+}
+
+/** The booking's state history, and where it may go from here. */
+export async function reservationStateHistory(req: Request, res: Response) {
+  const { id } = req.params as unknown as { id: number };
+  const reservation = await service.getReservation(id);
+
+  return ok(res, {
+    current: reservation.state,
+    current_label: stateService.STATE_LABELS[reservation.state],
+    allowed: stateService.allowedTransitions(reservation.state).map((s) => ({
+      state: s,
+      label: stateService.STATE_LABELS[s],
+    })),
+    history: await stateService.history(id),
+  });
 }

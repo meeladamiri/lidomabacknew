@@ -20,6 +20,8 @@ import {
   residenceStateSchema,
   updateReservationSchema,
   setReservationExpirySchema,
+  adminCancelSchema,
+  cancelQuoteSchema,
   updateUserSchema,
   upsertAmenitySchema,
   upsertCitySchema,
@@ -125,6 +127,18 @@ router.patch(
   "/reservations/:id",
   validate(updateReservationSchema),
   asyncHandler(controller.updateReservation)
+);
+
+router.post(
+  "/reservations/:id/cancel",
+  validate(adminCancelSchema),
+  asyncHandler(controller.adminCancelReservation)
+);
+
+router.get(
+  "/reservations/:id/cancel-quote",
+  validate(cancelQuoteSchema),
+  asyncHandler(controller.cancelQuote)
 );
 
 router.patch(

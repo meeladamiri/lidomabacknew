@@ -451,35 +451,24 @@ export async function rejectReservation(
     throw AppError.badRequest("این رزرو در وضعیت قابل رد شدن نیست");
   }
 
-  const updated = await prisma.reservation.update({
-    where: {
-      id,
-    },
-    data: {
-      state: "CANCEL",
-      cancelledBy: "HOST_CANCELLED",
-      cancelReason: reason,
-      cancelDesc: desc,
-    },
+  const { cancelReservation } = await import("./cancellation.service");
+
+  // A host cancelling a booking the guest already paid for is not the guest's
+  // fault, so the ladder does not apply and the refund is whole. The service
+  // decides that from `cancelledBy` rather than from a flag passed in here.
+  const result = await cancelReservation({
+    reservationId: id,
+    cancelledBy: "HOST_CANCELLED",
+    reason: reason ?? "لغو توسط میزبان",
+    desc,
+    notifyMode: "BOTH",
+    actorId: hostId,
+  });
+
+  return prisma.reservation.findUniqueOrThrow({
+    where: { id: result.reservation.id },
     include: RESERVATION_INCLUDE,
   });
-
-  await releaseCalendarDays(
-    reservation.residenceId,
-    reservation.startDate,
-    reservation.endDate
-  );
-
-  // cancelledBy comes off the updated row rather than the call site, so all
-  // three cancellation paths — host reject, host cancel, guest cancel — post
-  // the same card and it always names the right side.
-  onReservationStateChanged(id, "BOOKING_CANCELLED", {
-    reason: updated.cancelReason,
-    cancelledBy: updated.cancelledBy,
-  });
-  notify.onReservationStateChanged(id, "BOOKING_CANCELLED");
-
-  return updated;
 }
 
 export async function hostCancelReservation(
@@ -631,43 +620,44 @@ export async function replyToReview(hostId: number, reviewId: number, hostAnswer
   return prisma.review.update({ where: { id: reviewId }, data: { hostAnswer } });
 }
 
-export async function guestCancelReservation(
-  guestId: number,
-  id: number,
-  reason?: string
-) {
+/**
+ * A guest cancelling their own booking.
+ *
+ * The whole act — state, penalty, refund, the host's income, the calendar and
+ * the messages — lives in `cancellation.service`. This function's job is to
+ * prove the booking is theirs and hand over; when it did the work itself, it
+ * set a state and released a calendar and touched no money at all, so a guest
+ * who cancelled a paid booking simply never got anything back.
+ */
+export async function guestCancelReservation(guestId: number, id: number, reason?: string) {
   const reservation = await getOwnedReservation(guestId, id, "guest");
 
   if (reservation.state === "CANCEL" || reservation.state === "DONE") {
     throw AppError.badRequest("این رزرو قابل لغو نیست");
   }
 
-  const updated = await prisma.reservation.update({
-    where: {
-      id,
-    },
-    data: {
-      state: "CANCEL",
-      cancelledBy: "GUEST_CANCELLED",
-      cancelReason: reason,
-    },
+  const { cancelReservation } = await import("./cancellation.service");
+
+  const result = await cancelReservation({
+    reservationId: id,
+    cancelledBy: "GUEST_CANCELLED",
+    reason: reason ?? "لغو توسط مهمان",
+    // A guest cannot mark their own cancellation justified or waive their own
+    // refund. Both are support's call, and leaving them here would make the
+    // penalty ladder a suggestion.
+    notifyMode: "BOTH",
+    actorId: guestId,
+  });
+
+  return prisma.reservation.findUniqueOrThrow({
+    where: { id: result.reservation.id },
     include: RESERVATION_INCLUDE,
   });
+}
 
-  await releaseCalendarDays(
-    reservation.residenceId,
-    reservation.startDate,
-    reservation.endDate
-  );
-
-  // cancelledBy comes off the updated row rather than the call site, so all
-  // three cancellation paths — host reject, host cancel, guest cancel — post
-  // the same card and it always names the right side.
-  onReservationStateChanged(id, "BOOKING_CANCELLED", {
-    reason: updated.cancelReason,
-    cancelledBy: updated.cancelledBy,
-  });
-  notify.onReservationStateChanged(id, "BOOKING_CANCELLED");
-
-  return updated;
+/** What a guest would get back, shown before they confirm. */
+export async function guestCancelQuote(guestId: number, id: number) {
+  await getOwnedReservation(guestId, id, "guest");
+  const { quoteFor } = await import("./cancellation.service");
+  return quoteFor(id, { cancelledBy: "GUEST_CANCELLED" });
 }

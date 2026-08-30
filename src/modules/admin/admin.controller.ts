@@ -4,6 +4,7 @@ import { AppError } from "@/lib/errors";
 import { fileToUrl } from "@/middleware/upload";
 import * as service from "./admin.service";
 import * as expiryService from "@/modules/reservations/expiry.service";
+import * as cancellationService from "@/modules/reservations/cancellation.service";
 
 function getOptionalNumber(value: unknown): number | undefined {
   if (typeof value !== "string" || value.trim() === "") {
@@ -303,4 +304,45 @@ export async function setReservationExpiry(req: Request, res: Response) {
   };
 
   return ok(res, await expiryService.setExpiry(id, { expiryDate, minutesFromNow }));
+}
+
+/**
+ * Cancelling from the panel.
+ *
+ * Support gets the levers a guest and a host do not: marking a cancellation
+ * justified, waiving the refund entirely, overriding the penalty for the
+ * long-stay and peak bands the policy settles "by agreement", and choosing who
+ * hears about it.
+ */
+export async function adminCancelReservation(req: Request, res: Response) {
+  const { id } = req.params as unknown as { id: number };
+
+  const result = await cancellationService.cancelReservation({
+    reservationId: id,
+    ...(req.body as Omit<
+      Parameters<typeof cancellationService.cancelReservation>[0],
+      "reservationId" | "actorId"
+    >),
+    actorId: req.user?.sub ?? null,
+  });
+
+  return ok(res, result);
+}
+
+/** The money a cancellation would cost, before anyone commits to it. */
+export async function cancelQuote(req: Request, res: Response) {
+  const { id } = req.params as unknown as { id: number };
+  const q = req.query as Record<string, unknown>;
+
+  return ok(
+    res,
+    await cancellationService.quoteFor(id, {
+      cancelledBy:
+        (q.cancelledBy as "HOST_CANCELLED" | "GUEST_CANCELLED" | "LIDOMA_CANCELLED") ??
+        "LIDOMA_CANCELLED",
+      justified: q.justified === true || q.justified === "true",
+      withoutPayback: q.withoutPayback === true || q.withoutPayback === "true",
+      penaltyOverride: q.penaltyOverride != null ? Number(q.penaltyOverride) : null,
+    })
+  );
 }

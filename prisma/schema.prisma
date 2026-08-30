@@ -742,6 +742,39 @@ model Reservation {
   cancelReason String?                 @map("cancel_reason")
   cancelDesc   String?                 @map("cancel_desc")
 
+  /// کنسلی موجه — a cancellation excused from the penalty ladder.
+  ///
+  /// Odoo's `x_justified_cancel`, and it was rare on purpose: 1,387 of the
+  /// 99,236 cancellations. It is the difference between a guest who changed
+  /// their mind and a guest whose flight was cancelled, and only the second
+  /// gets their money back in full.
+  cancelJustified Boolean @default(false) @map("cancel_justified")
+
+  /// لغو با هماهنگی — for a site cancellation, whose side agreed to it.
+  cancelCoordinatedWith String? @map("cancel_coordinated_with")
+
+  /// عدم بازگشت وجه به مشتری — the guest keeps nothing back. Set by hand and
+  /// deliberately separate from the ladder, which is why it is a flag and not
+  /// a penalty of 100%: it records a decision, not an arithmetic result.
+  withoutPayback Boolean @default(false) @map("without_payback")
+
+  /// Who was told. Odoo logged this per cancellation and all four values were
+  /// used — 27,012 both, 25,622 guest only, 12,409 nobody, 2,118 host only.
+  cancelNotifyMode CancelNotifyMode? @map("cancel_notify_mode")
+
+  /// The money as it was decided at cancellation time, stored rather than
+  /// recomputed: the ladder depends on how long before the stay it happened,
+  /// and that answer changes every hour it is asked again.
+  cancelPenalty     Float? @map("cancel_penalty")
+  cancelRefund      Float? @map("cancel_refund")
+  cancelHostShare   Float? @map("cancel_host_share")
+  cancelSiteShare   Float? @map("cancel_site_share")
+  /// Which band of the policy was applied, for the record and the receipt.
+  cancelBand        String? @map("cancel_band")
+
+  cancelledAt   DateTime? @map("cancelled_at")
+  cancelledById Int?      @map("cancelled_by_id")
+
   // The money breakdown, in Odoo's own terms. Every figure is stored on the
   // reservation rather than recomputed, because a rate changed next month must
   // not silently restate what a host was owed last month. Percentages are
@@ -1832,6 +1865,25 @@ model ReservationSettings {
   /// مدت زمان پرداخت مهمان — minutes to complete payment after the host accepts.
   paymentWindowMinutes Int @default(120) @map("payment_window_minutes")
 
+  /// The cancellation ladder, from the site's own published policy
+  /// (`/reserve-cancellation-policy`). Settings rather than constants because
+  /// this is the page guests are held to, and the two must be able to move
+  /// together.
+  ///
+  ///   ≥72h before check-in   کسر ۲۰٪ از مبلغ کل
+  ///   <72h before check-in   شب اول + ۲۰٪ مابقی شب‌ها
+  ///   on or after check-in   دو شب اول + شب‌های سپری شده + ۲۰٪ مابقی
+  cancelPenaltyPercent Float @default(20) @map("cancel_penalty_percent")
+
+  /// Hours before check-in at which the ladder steps up.
+  cancelEarlyHours Int @default(72) @map("cancel_early_hours")
+
+  /// Nights charged in full when cancelling inside the window, and on/after
+  /// the start date. Stated as counts because that is how the policy states
+  /// them: "شب اول" and "دو شب اول".
+  cancelNightsLate    Int @default(1) @map("cancel_nights_late")
+  cancelNightsStarted Int @default(2) @map("cancel_nights_started")
+
   /// Smallest payout a host may ask for.
   minSettlement Int @default(50000) @map("min_settlement")
 
@@ -1896,4 +1948,16 @@ enum HostDepositKind {
   DEPOSIT // واریز بیعانه
   HOST_DEBIT // کسر بدهی میزبان
   ADJUSTMENT // ویرایش مانده واریز — a correction, not a payment
+}
+
+/// نحوه ارسال پیام لغو — who hears about a cancellation.
+///
+/// A real choice rather than a policy, because the reason for cancelling
+/// changes who needs to know. A site cancellation coordinated with the host by
+/// phone does not need a message telling that host it happened.
+enum CancelNotifyMode {
+  BOTH // هر دو
+  ONLY_GUEST // فقط مهمان
+  ONLY_HOST // فقط میزبان
+  NONE // هیچ‌کدام
 }

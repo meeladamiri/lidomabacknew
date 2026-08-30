@@ -165,6 +165,38 @@ export const updateReservationSchema = z.object({
  * now" — the two ways people actually ask for it are "until 6pm" and "give
  * them another hour".
  */
+/**
+ * A cancellation from the panel, with every lever support actually has.
+ *
+ * `justified` and `withoutPayback` are the two that move real money and neither
+ * is available to a guest or a host cancelling their own booking — support
+ * decides those, which is what stops the penalty ladder being a suggestion.
+ */
+export const adminCancelSchema = z.object({
+  params: z.object({ id: z.coerce.number().int() }),
+  body: z.object({
+    cancelledBy: z.enum(["HOST_CANCELLED", "GUEST_CANCELLED", "LIDOMA_CANCELLED"]),
+    reason: z.string().min(1).max(500),
+    desc: z.string().max(2000).nullable().optional(),
+    justified: z.boolean().optional(),
+    withoutPayback: z.boolean().optional(),
+    coordinatedWith: z.enum(["guest", "host"]).nullable().optional(),
+    notifyMode: z.enum(["BOTH", "ONLY_GUEST", "ONLY_HOST", "NONE"]).optional(),
+    penaltyOverride: z.number().min(0).nullable().optional(),
+  }),
+});
+
+/** The same options, but only to preview the money. */
+export const cancelQuoteSchema = z.object({
+  params: z.object({ id: z.coerce.number().int() }),
+  query: z.object({
+    cancelledBy: z.enum(["HOST_CANCELLED", "GUEST_CANCELLED", "LIDOMA_CANCELLED"]).optional(),
+    justified: z.coerce.boolean().optional(),
+    withoutPayback: z.coerce.boolean().optional(),
+    penaltyOverride: z.coerce.number().min(0).optional(),
+  }),
+});
+
 export const setReservationExpirySchema = z.object({
   params: z.object({ id: z.coerce.number().int() }),
   body: z

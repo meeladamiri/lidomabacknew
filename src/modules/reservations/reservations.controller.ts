@@ -75,3 +75,9 @@ export async function hostCancel(req: Request, res: Response) {
   const data = await service.hostCancelReservation(userId(req), Number(req.params.id), req.body.reason, req.body.desc);
   return ok(res, data);
 }
+
+/** What the guest would get back if they cancelled right now. */
+export async function cancelQuote(req: Request, res: Response) {
+  const { id } = req.params as unknown as { id: number };
+  return ok(res, await service.guestCancelQuote(req.user!.sub, id));
+}

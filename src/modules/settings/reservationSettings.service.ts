@@ -28,6 +28,10 @@ export interface ReservationRates {
   minSettlement: number;
   approvalWindowMinutes: number;
   paymentWindowMinutes: number;
+  cancelPenaltyPercent: number;
+  cancelEarlyHours: number;
+  cancelNightsLate: number;
+  cancelNightsStarted: number;
 }
 
 const DEFAULTS: ReservationRates = {
@@ -38,6 +42,10 @@ const DEFAULTS: ReservationRates = {
   minSettlement: 50_000,
   approvalWindowMinutes: 120,
   paymentWindowMinutes: 120,
+  cancelPenaltyPercent: 20,
+  cancelEarlyHours: 72,
+  cancelNightsLate: 1,
+  cancelNightsStarted: 2,
 };
 
 // Read on every booking and on every settlement screen, changed a few times a
@@ -59,6 +67,10 @@ export async function getSettings(): Promise<ReservationRates> {
         minSettlement: row.minSettlement,
         approvalWindowMinutes: row.approvalWindowMinutes,
         paymentWindowMinutes: row.paymentWindowMinutes,
+        cancelPenaltyPercent: row.cancelPenaltyPercent,
+        cancelEarlyHours: row.cancelEarlyHours,
+        cancelNightsLate: row.cancelNightsLate,
+        cancelNightsStarted: row.cancelNightsStarted,
       }
     : DEFAULTS;
 

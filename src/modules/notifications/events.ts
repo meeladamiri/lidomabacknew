@@ -222,3 +222,92 @@ export function onReviewCreated(reviewId: number): void {
     });
   });
 }
+
+/**
+ * A cancellation, told to whichever side was chosen.
+ *
+ * Separate from `onReservationStateChanged` because a cancellation is the one
+ * event where "who hears about it" is a decision rather than a rule. Support
+ * settles a cancellation on the phone and then does not want the system
+ * announcing it to the person they just spoke to — that is how a resolved
+ * problem gets reopened.
+ *
+ * The reason is carried into the text. A host reading "رزرو لغو شد" with no
+ * cause opens a support ticket to ask why, which costs more than the sentence.
+ */
+export function onReservationCancelled(
+  reservationId: number,
+  targets: { guest: boolean; host: boolean }
+): void {
+  if (!targets.guest && !targets.host) return;
+
+  fire(`cancelled ${reservationId}`, async () => {
+    const booking = await prisma.reservation.findUnique({
+      where: { id: reservationId },
+      select: {
+        id: true,
+        reference: true,
+        guestId: true,
+        hostId: true,
+        startDate: true,
+        endDate: true,
+        cancelReason: true,
+        cancelledBy: true,
+        cancelJustified: true,
+        cancelRefund: true,
+        residence: { select: { name: true } },
+      },
+    });
+    if (!booking) return;
+
+    const stay = `${faDate(booking.startDate)} تا ${faDate(booking.endDate)}`;
+    const name = booking.residence.name;
+    const who =
+      booking.cancelledBy === "HOST_CANCELLED"
+        ? "میزبان"
+        : booking.cancelledBy === "GUEST_CANCELLED"
+          ? "مهمان"
+          : "پشتیبانی لیدوما";
+
+    const reason = booking.cancelReason ? ` دلیل: ${booking.cancelReason}` : "";
+
+    const writes: Promise<unknown>[] = [];
+
+    if (targets.guest) {
+      // The refund is the guest's first question, so it is in the notification
+      // rather than one screen further in.
+      const refund =
+        booking.cancelRefund && booking.cancelRefund > 0
+          ? ` مبلغ ${fa(booking.cancelRefund)} تومان به کیف پول شما بازگردانده شد.`
+          : "";
+
+      writes.push(
+        record({
+          userId: booking.guestId,
+          kind: "BOOKING_CANCELLED",
+          title: "رزرو لغو شد",
+          body: `رزرو ${name} (${stay}) توسط ${who} لغو شد.${reason}${refund}`,
+          linkUrl: `/profile/my-trips?reservation=${booking.reference}`,
+          entityType: "reservation",
+          entityId: booking.id,
+        })
+      );
+    }
+
+    if (targets.host) {
+      writes.push(
+        record({
+          userId: booking.hostId,
+          kind: "BOOKING_CANCELLED",
+          title: "رزرو لغو شد",
+          body: `رزرو ${name} (${stay}) توسط ${who} لغو شد.${reason} تاریخ‌های این رزرو دوباره آزاد شدند.`,
+          linkUrl: `/profile/reserves?reservation=${booking.reference}`,
+          entityType: "reservation",
+          entityId: booking.id,
+        })
+      );
+    }
+
+    await Promise.all(writes);
+  });
+}

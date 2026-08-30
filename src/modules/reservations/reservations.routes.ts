@@ -21,6 +21,14 @@ router.use(requireAuth);
 router.post("/", validate(createReservationSchema), asyncHandler(controller.create));
 router.get("/mine", asyncHandler(controller.mine));
 router.get("/:id", validate(reservationIdParamSchema), asyncHandler(controller.detail));
+// Shown before the guest confirms: the policy says the amount "در هنگام لغو
+// رزرو برای کاربر به نمایش درمی‌آید", and it never was.
+router.get(
+  "/:id/cancel-quote",
+  validate(reservationIdParamSchema),
+  asyncHandler(controller.cancelQuote)
+);
+
 router.post(
   "/:id/cancel",
   validate(guestCancelReservationSchema),

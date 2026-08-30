@@ -5,7 +5,12 @@ import { onReservationCreated, onReservationStateChanged } from "@/modules/conve
 import * as notify from "@/modules/notifications/events";
 import { generateReference } from "@/utils/reference";
 import { calculateStayPrice } from "./pricing";
-import { breakdownForHost } from "@/modules/settings/reservationSettings.service";
+import {
+  computeBreakdown,
+  deadlineIn,
+  getSettings,
+  ratesForHost,
+} from "@/modules/settings/reservationSettings.service";
 import { resolvePublicResidenceId } from "@/lib/publicId";
 
 export const RESERVATION_INCLUDE = {
@@ -185,8 +190,11 @@ export async function createReservation(
 
   // The commission split is worked out once, here, and stored on the booking.
   // Reading the rate again later would mean a settings change silently
-  // restating what a host was owed on a stay that already happened.
-  const money = await breakdownForHost(residence.hostId, pricing.totalAmount);
+  // restating what a host was owed on a stay that already happened. The same
+  // read supplies the approval window, so both come from one snapshot of the
+  // settings rather than two that could differ.
+  const rates = await ratesForHost(residence.hostId);
+  const money = computeBreakdown(pricing.totalAmount, rates);
 
   const reservation = await prisma.$transaction(
     async (tx: Prisma.TransactionClient) => {
@@ -232,6 +240,10 @@ export async function createReservation(
           // What the guest still owes: the rent plus the site's guest fee.
           // Nothing has been paid at this point — there is no gateway yet.
           remainingAmount: money.guestPayable,
+          // مهلت تایید میزبان. Stored on the booking rather than computed from
+          // createdAt on read, so support can extend one booking's deadline
+          // without moving everybody else's.
+          expiryDate: deadlineIn(rates.approvalWindowMinutes),
           guestNameOverride: data.guestNameOverride,
           guestPhoneOverride: data.guestPhoneOverride,
           state: "HOST_APPROVAL",
@@ -404,12 +416,18 @@ export async function acceptReservation(hostId: number, id: number) {
     throw AppError.badRequest("این رزرو در وضعیت قابل تایید نیست");
   }
 
+  // The clock restarts here: the host has answered, and the remaining wait is
+  // the guest's. Leaving the approval deadline in place would hand the guest
+  // whatever minutes the host happened not to use.
+  const { paymentWindowMinutes } = await getSettings();
+
   const accepted = await prisma.reservation.update({
     where: {
       id,
     },
     data: {
       state: "SECOND_PAYMENT",
+      expiryDate: deadlineIn(paymentWindowMinutes),
     },
     include: RESERVATION_INCLUDE,
   });

@@ -26,6 +26,8 @@ export interface ReservationRates {
   guestCommissionPercent: number;
   releaseOnStartDate: boolean;
   minSettlement: number;
+  approvalWindowMinutes: number;
+  paymentWindowMinutes: number;
 }
 
 const DEFAULTS: ReservationRates = {
@@ -34,6 +36,8 @@ const DEFAULTS: ReservationRates = {
   guestCommissionPercent: 0,
   releaseOnStartDate: true,
   minSettlement: 50_000,
+  approvalWindowMinutes: 120,
+  paymentWindowMinutes: 120,
 };
 
 // Read on every booking and on every settlement screen, changed a few times a
@@ -53,6 +57,8 @@ export async function getSettings(): Promise<ReservationRates> {
         guestCommissionPercent: row.guestCommissionPercent,
         releaseOnStartDate: row.releaseOnStartDate,
         minSettlement: row.minSettlement,
+        approvalWindowMinutes: row.approvalWindowMinutes,
+        paymentWindowMinutes: row.paymentWindowMinutes,
       }
     : DEFAULTS;
 
@@ -68,6 +74,11 @@ export async function updateSettings(input: Partial<ReservationRates>) {
   });
   cache = null;
   return row;
+}
+
+/** A deadline `n` minutes from now, which is how both windows are set. */
+export function deadlineIn(minutes: number, from = new Date()) {
+  return new Date(from.getTime() + minutes * 60_000);
 }
 
 /**

@@ -160,6 +160,24 @@ export const updateReservationSchema = z.object({
   }),
 });
 
+/**
+ * Moving one booking's deadline. Either an absolute moment or "n minutes from
+ * now" — the two ways people actually ask for it are "until 6pm" and "give
+ * them another hour".
+ */
+export const setReservationExpirySchema = z.object({
+  params: z.object({ id: z.coerce.number().int() }),
+  body: z
+    .object({
+      expiryDate: z.coerce.date().nullable().optional(),
+      minutesFromNow: z.number().int().min(1).max(10_080).optional(),
+    })
+    .refine(
+      (b) => b.minutesFromNow != null || b.expiryDate !== undefined,
+      "مهلت جدید مشخص نشده است"
+    ),
+});
+
 export const upsertAmenitySchema = z.object({
   body: z.object({
     key: z.string().max(60).optional(), // stable English identifier (search-tag filters match on it)

@@ -36,6 +36,10 @@ router.put(
         guestCommissionPercent: z.number().min(0).max(100).optional(),
         releaseOnStartDate: z.boolean().optional(),
         minSettlement: z.number().int().min(0).max(100_000_000).optional(),
+        // A window of zero would expire every booking the moment it is made,
+        // so the floor is one minute. The ceiling is a week.
+        approvalWindowMinutes: z.number().int().min(1).max(10_080).optional(),
+        paymentWindowMinutes: z.number().int().min(1).max(10_080).optional(),
       }),
     })
   ),

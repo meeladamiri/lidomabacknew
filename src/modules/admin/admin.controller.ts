@@ -3,6 +3,7 @@ import { ok, created, paginated } from "@/utils/response";
 import { AppError } from "@/lib/errors";
 import { fileToUrl } from "@/middleware/upload";
 import * as service from "./admin.service";
+import * as expiryService from "@/modules/reservations/expiry.service";
 
 function getOptionalNumber(value: unknown): number | undefined {
   if (typeof value !== "string" || value.trim() === "") {
@@ -285,4 +286,21 @@ export async function updateReservation(req: Request, res: Response) {
   );
 
   return ok(res, data);
+}
+
+/**
+ * Moves one booking's deadline.
+ *
+ * Odoo allowed the same edit on the sale order, and support needs it for the
+ * case it was built for: a host who has just called to say they are on their
+ * way should not lose the booking to a clock.
+ */
+export async function setReservationExpiry(req: Request, res: Response) {
+  const { id } = req.params as unknown as { id: number };
+  const { expiryDate, minutesFromNow } = req.body as {
+    expiryDate?: Date | null;
+    minutesFromNow?: number;
+  };
+
+  return ok(res, await expiryService.setExpiry(id, { expiryDate, minutesFromNow }));
 }

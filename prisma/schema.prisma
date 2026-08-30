@@ -1804,6 +1804,19 @@ model ReservationSettings {
   /// the guest has arrived, so the booking is no longer going to fall through.
   releaseOnStartDate Boolean @default(true) @map("release_on_start_date")
 
+  /// مدت زمان تایید میزبان — minutes a host has to accept before the booking
+  /// expires and the dates go back on sale.
+  ///
+  /// Odoo kept one field for both this and the payment window ("مهلت تایید یا
+  /// پرداخت"), so it could not set them apart. Its stored deadlines cluster at
+  /// 120 minutes (85k bookings), 60 (47k) and 720 (26k). Two fields here
+  /// because the two waits are not the same wait: a host is being asked to
+  /// make a decision, a guest is being asked to finish paying.
+  approvalWindowMinutes Int @default(120) @map("approval_window_minutes")
+
+  /// مدت زمان پرداخت مهمان — minutes to complete payment after the host accepts.
+  paymentWindowMinutes Int @default(120) @map("payment_window_minutes")
+
   /// Smallest payout a host may ask for.
   minSettlement Int @default(50000) @map("min_settlement")
 

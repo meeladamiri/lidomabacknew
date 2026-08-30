@@ -106,6 +106,8 @@ export const env = {
     enabled: (readEnv("SCHEDULER_ENABLED") ?? "true").toLowerCase() !== "false",
     /** How often the maturity sweep runs, in minutes. */
     releaseEveryMinutes: Number(readEnv("SCHEDULER_RELEASE_MINUTES") ?? 60) || 60,
+    /** How often overdue bookings are expired. Deadlines are minutes, not days. */
+    expireEveryMinutes: Number(readEnv("SCHEDULER_EXPIRE_MINUTES") ?? 5) || 5,
   },
 
   // Object storage (Liara, S3-compatible). When unset, uploads fall back to

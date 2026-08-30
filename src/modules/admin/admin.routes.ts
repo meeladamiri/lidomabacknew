@@ -19,6 +19,7 @@ import {
   filterPresetSchema,
   residenceStateSchema,
   updateReservationSchema,
+  setReservationExpirySchema,
   updateUserSchema,
   upsertAmenitySchema,
   upsertCitySchema,
@@ -124,6 +125,12 @@ router.patch(
   "/reservations/:id",
   validate(updateReservationSchema),
   asyncHandler(controller.updateReservation)
+);
+
+router.patch(
+  "/reservations/:id/expiry",
+  validate(setReservationExpirySchema),
+  asyncHandler(controller.setReservationExpiry)
 );
 
 router.get("/filter-presets", asyncHandler(controller.listFilterPresets));

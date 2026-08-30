@@ -7,7 +7,7 @@ import { prisma } from "@/lib/prisma";
 import * as settlements from "@/modules/wallet/settlements.service";
 import * as wallet from "@/modules/wallet/wallet.service";
 import * as deposits from "@/modules/wallet/deposits.service";
-import { releaseMaturedEarnings } from "./admin.service";
+import { runJobNow, schedulerStatus } from "@/lib/scheduler";
 
 /**
  * Wallet administration.
@@ -142,10 +142,23 @@ router.post(
   })
 );
 
-/** Runs the maturity sweep by hand until there is a scheduler. */
+/**
+ * Runs the maturity sweep by hand.
+ *
+ * The scheduler runs it hourly on its own; this stays for the times somebody
+ * needs it to have happened *now* — a host on the phone asking where their
+ * money is — and it goes through the scheduler so the panel's "last run" is
+ * the truth rather than a figure that ignores manual runs.
+ */
 router.post(
   "/release-matured",
-  asyncHandler(async (_req, res) => ok(res, await releaseMaturedEarnings()))
+  asyncHandler(async (_req, res) => ok(res, await runJobNow("release-matured")))
+);
+
+/** What the scheduler is doing, for the panel. */
+router.get(
+  "/scheduler",
+  asyncHandler(async (_req, res) => ok(res, schedulerStatus()))
 );
 
 // ---------- Deposits (Odoo's x_clearing) ----------

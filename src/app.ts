@@ -8,6 +8,7 @@ import { env, isProd, reportQuotedEnv } from "@/config/env";
 import { errorHandler, notFoundHandler } from "@/middleware/error";
 import { invalidateOnWrite } from "@/middleware/cacheInvalidation";
 import { cacheStatus, initCache } from "@/lib/cache";
+import { schedulerStatus } from "@/lib/scheduler";
 import { initPubSub } from "@/lib/pubsub";
 import { UPLOAD_ROOT } from "@/middleware/upload";
 
@@ -50,7 +51,9 @@ export function buildApp() {
   app.use(morgan(isProd ? "combined" : "dev"));
   app.use("/uploads", express.static(UPLOAD_ROOT));
 
-  app.get("/health", (_req, res) => res.json({ status: "ok", cache: cacheStatus() }));
+  app.get("/health", (_req, res) =>
+    res.json({ status: "ok", cache: cacheStatus(), scheduler: schedulerStatus() })
+  );
 
   // Public
   // Served from the site root (the front proxies them there) so crawlers find

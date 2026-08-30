@@ -98,6 +98,16 @@ export const env = {
     url: readEnv("REDIS_URL") ?? "",
   },
 
+  // Background jobs (see lib/scheduler.ts). On by default: the jobs it runs
+  // are things the site is wrong without — a host whose money is never
+  // released is not a degraded feature, it is an unpaid host. Set to "false"
+  // on any instance that should serve traffic only.
+  scheduler: {
+    enabled: (readEnv("SCHEDULER_ENABLED") ?? "true").toLowerCase() !== "false",
+    /** How often the maturity sweep runs, in minutes. */
+    releaseEveryMinutes: Number(readEnv("SCHEDULER_RELEASE_MINUTES") ?? 60) || 60,
+  },
+
   // Object storage (Liara, S3-compatible). When unset, uploads fall back to
   // local disk (see middleware/upload.ts) — fine for dev, not for production.
   objectStorage: {

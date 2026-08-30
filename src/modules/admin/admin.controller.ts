@@ -250,6 +250,7 @@ export async function listReservations(req: Request, res: Response) {
     page: getOptionalNumber(req.query.page),
     pageSize: getOptionalNumber(req.query.pageSize),
     state: getOptionalString(req.query.state),
+    q: getOptionalString(req.query.q),
   });
 
   return paginated(res, result.items, {

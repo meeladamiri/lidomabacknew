@@ -898,11 +898,34 @@ function cityOf(location: CityChain): string | null {
   return location?.name ?? null;
 }
 
-export async function listReservations(params: { page?: number; pageSize?: number; state?: string }) {
+export async function listReservations(params: {
+  page?: number;
+  pageSize?: number;
+  state?: string;
+  q?: string;
+}) {
   const { page, pageSize, skip, take } = parsePagination(params);
-  const where: Prisma.ReservationWhereInput = params.state
-    ? { state: params.state as ReservationState }
-    : {};
+
+  // Finding one booking among 29,659 by paging is 1,483 pages. The search
+  // covers the four things anyone actually has to hand when they go looking:
+  // the code on the invoice, and either party's name or phone.
+  const q = params.q?.trim();
+
+  const where: Prisma.ReservationWhereInput = {
+    ...(params.state ? { state: params.state as ReservationState } : {}),
+    ...(q
+      ? {
+          OR: [
+            { reference: { contains: q, mode: "insensitive" } },
+            { guest: { phone: { contains: q } } },
+            { guest: { name: { contains: q, mode: "insensitive" } } },
+            { host: { phone: { contains: q } } },
+            { host: { name: { contains: q, mode: "insensitive" } } },
+            { residence: { name: { contains: q, mode: "insensitive" } } },
+          ],
+        }
+      : {}),
+  };
 
   const [total, items] = await Promise.all([
     prisma.reservation.count({ where }),

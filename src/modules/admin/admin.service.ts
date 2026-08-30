@@ -2,6 +2,7 @@ import {
   Prisma,
   ResidenceState,
   ReservationState,
+  type LocationType,
   type ResidenceType,
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
@@ -865,6 +866,34 @@ export async function adminReorderImages(id: number, imageIds: number[]) {
   return residencesService.reorderImages(await resolveHostIdForResidence(id), id, imageIds);
 }
 
+// A residence points at wherever it actually sits, which is sometimes a
+// neighbourhood or a village, so the city is the nearest CITY going up the
+// breadcrumb chain rather than whatever location the listing names directly.
+const CITY_CHAIN_SELECT = {
+  select: {
+    name: true,
+    type: true,
+    parent: {
+      select: {
+        name: true,
+        type: true,
+        parent: { select: { name: true, type: true } },
+      },
+    },
+  },
+} as const;
+
+type CityChain = { name: string; type: LocationType; parent?: CityChain | null } | null;
+
+function cityOf(location: CityChain): string | null {
+  for (let node: CityChain = location; node; node = node.parent ?? null) {
+    if (node.type === "CITY") return node.name;
+  }
+  // Nothing in the chain is a city — a REGION, or a listing pinned at province
+  // level. The place it does have beats an empty cell.
+  return location?.name ?? null;
+}
+
 export async function listReservations(params: { page?: number; pageSize?: number; state?: string }) {
   const { page, pageSize, skip, take } = parsePagination(params);
   const where: Prisma.ReservationWhereInput = params.state
@@ -879,14 +908,35 @@ export async function listReservations(params: { page?: number; pageSize?: numbe
       take,
       orderBy: { createdAt: "desc" },
       include: {
-        residence: { select: { id: true, name: true } },
+        residence: { select: { id: true, name: true, location: CITY_CHAIN_SELECT } },
         guest: { select: { id: true, name: true, phone: true } },
         host: { select: { id: true, name: true, phone: true } },
       },
     }),
   ]);
 
-  return { total, page, pageSize, items };
+  // "How many bookings had this guest made before this one" — the panel's
+  // repeat-guest signal. One count per row rather than one grouped count: the
+  // same guest can appear twice on a page and each of those rows has a
+  // different answer. The page is 20 rows and `guest_id` is indexed.
+  const previousCounts = await Promise.all(
+    items.map((r) =>
+      prisma.reservation.count({
+        where: { guestId: r.guestId, createdAt: { lt: r.createdAt } },
+      })
+    )
+  );
+
+  return {
+    total,
+    page,
+    pageSize,
+    items: items.map((r, i) => ({
+      ...r,
+      city: cityOf(r.residence.location),
+      guestPreviousCount: previousCounts[i],
+    })),
+  };
 }
 
 export async function getReservation(id: number) {

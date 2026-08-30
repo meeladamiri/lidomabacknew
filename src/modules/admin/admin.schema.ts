@@ -48,6 +48,9 @@ export const updateUserSchema = z.object({
     isHost: z.boolean().optional(),
     isActive: z.boolean().optional(),
     isSpecialHost: z.boolean().optional(),
+    // کمیسیون میزبان (درصد). Null clears it, putting the host back on the
+    // site-wide rate — which is not the same as setting it to zero.
+    commissionPercent: z.number().min(0).max(100).nullable().optional(),
     role: z.enum(["USER", "ADMIN"]).optional(),
     verificationStatus: z.enum(["NOT_CONFIRMED", "CHECKING", "CONFIRMED"]).optional(),
     ...userProfileFields,

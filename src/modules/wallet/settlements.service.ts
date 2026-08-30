@@ -1,7 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { AppError } from "@/lib/errors";
-import { MIN_SETTLEMENT } from "./wallet.service";
+import { getSettings } from "@/modules/settings/reservationSettings.service";
 
 const round = (n: number) => Math.round(n * 100) / 100;
 
@@ -19,9 +19,14 @@ const round = (n: number) => Math.round(n * 100) / 100;
 export async function request(userId: number, amount: number) {
   const value = round(amount);
 
-  if (!Number.isFinite(value) || value < MIN_SETTLEMENT) {
+  // The floor is a setting rather than a constant: below it a payout costs
+  // more in bank fees and handling than it moves, and where that line sits is
+  // a business call that changes with the currency.
+  const { minSettlement } = await getSettings();
+
+  if (!Number.isFinite(value) || value < minSettlement) {
     throw AppError.badRequest(
-      `حداقل مبلغ تسویه ${MIN_SETTLEMENT.toLocaleString("fa-IR")} تومان است`
+      `حداقل مبلغ تسویه ${minSettlement.toLocaleString("fa-IR")} تومان است`
     );
   }
 

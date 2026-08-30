@@ -1,12 +1,11 @@
 import { Prisma, type WalletTransactionKind } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { AppError } from "@/lib/errors";
+import { getSettings } from "@/modules/settings/reservationSettings.service";
 
 const DEFAULT_TAKE = 20;
 const MAX_TAKE = 50;
 
-/** Below this a payout costs more in fees and handling than it moves. */
-export const MIN_SETTLEMENT = 50_000;
 
 /**
  * Money is stored in whole tomans, but Float leaves room for rounding dust to
@@ -125,9 +124,10 @@ export async function release(userId: number, amount: number, description: strin
 }
 
 export async function summary(userId: number) {
-  const [wallet, bank] = await Promise.all([
+  const [wallet, bank, settings] = await Promise.all([
     prisma.wallet.findUnique({ where: { userId } }),
     prisma.bankAccount.findUnique({ where: { userId } }),
+    getSettings(),
   ]);
 
   return {
@@ -142,6 +142,9 @@ export async function summary(userId: number) {
       shaba_number: bank?.shabaNumber ?? null,
       shaba_owner: bank?.shabaOwnerName ?? null,
     },
+    // Sent with the balance so the payout sheet can state the floor instead of
+    // carrying its own copy of the number and disagreeing with the server.
+    min_settlement: settings.minSettlement,
   };
 }
 

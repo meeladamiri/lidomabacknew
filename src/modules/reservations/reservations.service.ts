@@ -5,6 +5,7 @@ import { onReservationCreated, onReservationStateChanged } from "@/modules/conve
 import * as notify from "@/modules/notifications/events";
 import { generateReference } from "@/utils/reference";
 import { calculateStayPrice } from "./pricing";
+import { breakdownForHost } from "@/modules/settings/reservationSettings.service";
 import { resolvePublicResidenceId } from "@/lib/publicId";
 
 export const RESERVATION_INCLUDE = {
@@ -182,6 +183,11 @@ export async function createReservation(
     extraGuestsCount: data.extraGuestsCount ?? 0,
   });
 
+  // The commission split is worked out once, here, and stored on the booking.
+  // Reading the rate again later would mean a settings change silently
+  // restating what a host was owed on a stay that already happened.
+  const money = await breakdownForHost(residence.hostId, pricing.totalAmount);
+
   const reservation = await prisma.$transaction(
     async (tx: Prisma.TransactionClient) => {
       // بررسی مجدد ظرفیت در تراکنش برای جلوگیری از تداخل همزمان
@@ -216,6 +222,16 @@ export async function createReservation(
           guestsCount: data.guestsCount,
           extraGuestsCount: data.extraGuestsCount ?? 0,
           totalAmount: pricing.totalAmount,
+          websiteShare: money.websiteShare,
+          vatAmount: money.vatAmount,
+          guestCommission: money.guestCommission,
+          hostShare: money.hostShare,
+          commissionPercent: money.commissionPercent,
+          vatPercent: money.vatPercent,
+          guestCommissionPercent: money.guestCommissionPercent,
+          // What the guest still owes: the rent plus the site's guest fee.
+          // Nothing has been paid at this point — there is no gateway yet.
+          remainingAmount: money.guestPayable,
           guestNameOverride: data.guestNameOverride,
           guestPhoneOverride: data.guestPhoneOverride,
           state: "HOST_APPROVAL",

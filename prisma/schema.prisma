@@ -333,6 +333,13 @@ model User {
   // admin panel: "میزبان ویژه" highlight flag
   isSpecialHost      Boolean            @default(false) @map("is_special_host")
 
+  // "کمیسیون میزبان (درصد)" — what the site keeps from this host's bookings.
+  // Odoo carried the same field on res_partner: 15 for almost everyone, with
+  // a handful negotiated down to 10 or up to 20. Null means "use the rate in
+  // ReservationSettings", so raising the global rate moves everyone who was
+  // never given a special one.
+  commissionPercent  Float?             @map("commission_percent")
+
   bankAccount         BankAccount?
   yellowCards         UserYellowCard[] @relation("UserYellowCards")
   residences          Residence[]      @relation("HostResidences")
@@ -346,6 +353,7 @@ model User {
   conversations         ConversationParticipant[]
   notifications         Notification[]
   wallet                Wallet?
+  hostDeposits          HostDeposit[]             @relation("HostDeposits")
   settlementRequests    SettlementRequest[]       @relation("SettlementRequests")
   processedSettlements  SettlementRequest[]       @relation("ProcessedSettlements")
   sentMessages          Message[]                 @relation("SentMessages")
@@ -734,11 +742,34 @@ model Reservation {
   cancelReason String?                 @map("cancel_reason")
   cancelDesc   String?                 @map("cancel_desc")
 
+  // The money breakdown, in Odoo's own terms. Every figure is stored on the
+  // reservation rather than recomputed, because a rate changed next month must
+  // not silently restate what a host was owed last month. Percentages are
+  // snapshotted alongside the amounts for the same reason.
+  //
+  //   totalAmount      مبلغ کل اجاره        — the rent
+  //   paidAmount       جمع مبلغ پرداختی مهمان — rent plus the guest fee
+  //   websiteShare     کارمزد میزبان وبسایت  — the site's cut, taken from the host
+  //   vatAmount        ارزش افزوده          — VAT, charged on the cut, not the rent
+  //   guestCommission  کارمزد مهمان وبسایت   — the site's fee added on top for the guest
+  //   hostShare        مقدار اصلی سهم میزبان — totalAmount − websiteShare − vatAmount
+  //   settledAmount    مبلغ تسویه شده        — how much of hostShare has been sent
   totalAmount     Float  @map("total_amount")
   paidAmount      Float  @default(0) @map("paid_amount")
   remainingAmount Float  @default(0) @map("remaining_amount")
   hostShare       Float? @map("host_share")
   websiteShare    Float? @map("website_share")
+  vatAmount       Float? @map("vat_amount")
+  guestCommission Float? @map("guest_commission")
+  settledAmount   Float  @default(0) @map("settled_amount")
+
+  // The rates these amounts came from, kept so an old reservation can explain
+  // itself after the settings change.
+  commissionPercent      Float? @map("commission_percent")
+  vatPercent             Float? @map("vat_percent")
+  guestCommissionPercent Float? @map("guest_commission_percent")
+
+  hostDeposits HostDeposit[]
 
   voucherCode String? @map("voucher_code")
 
@@ -1743,4 +1774,73 @@ model SettlementRequest {
   @@index([status, id])
   @@index([userId, id])
   @@map("settlement_requests")
+}
+
+/// Site-wide reservation money rules. A single row (id = 1).
+///
+/// Odoo kept these as per-partner and per-product columns with no global
+/// default, so "what do we charge" was only answerable by counting: 276,385
+/// hosts on 15%, a few hundred on something else. The rate lives here now and
+/// a host's own rate is the exception, not the only place the number exists.
+model ReservationSettings {
+  id Int @id @default(1)
+
+  /// کارمزد میزبان وبسایت (درصد) — the site's cut of the rent, taken from the
+  /// host. Overridable per host on User.commissionPercent.
+  commissionPercent Float @default(15) @map("commission_percent")
+
+  /// ارزش افزوده (درصد) — VAT, charged on the commission rather than on the
+  /// rent. This is how Odoo computed it: 67,500 of VAT on a 675,000 cut of a
+  /// 4,500,000 booking. Applying it to the rent instead would be ten times
+  /// too much, so the base matters more than the rate.
+  vatPercent Float @default(10) @map("vat_percent")
+
+  /// کارمزد مهمان وبسایت (درصد) — a service fee added on top of the rent for
+  /// the guest. Odoo charged ~5% on some bookings; zero here until it is
+  /// deliberately turned on.
+  guestCommissionPercent Float @default(0) @map("guest_commission_percent")
+
+  /// A host's income is held until the stay starts rather than until it ends:
+  /// the guest has arrived, so the booking is no longer going to fall through.
+  releaseOnStartDate Boolean @default(true) @map("release_on_start_date")
+
+  /// Smallest payout a host may ask for.
+  minSettlement Int @default(50000) @map("min_settlement")
+
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("reservation_settings")
+}
+
+/// Money actually sent to a host — Odoo's `x_clearing`, with its transaction
+/// reference, date and sending account.
+///
+/// Separate from SettlementRequest, which is the host asking. This is the
+/// site paying, and it can happen without any request: the common case is an
+/// admin settling a specific reservation before the guest even arrives.
+model HostDeposit {
+  id     Int  @id @default(autoincrement())
+  hostId Int  @map("host_id")
+  host   User @relation("HostDeposits", fields: [hostId], references: [id], onDelete: Cascade)
+
+  /// The booking this pays for. Null for a lump payment against the balance.
+  reservationId Int?         @map("reservation_id")
+  reservation   Reservation? @relation(fields: [reservationId], references: [id], onDelete: SetNull)
+
+  amount      Float
+  depositedAt DateTime @default(now()) @map("deposited_at")
+
+  /// شماره تراکنش / حساب فرستنده — what makes this auditable against a bank
+  /// statement. Without them a deposit row is just an assertion.
+  txnId       String? @map("txn_id")
+  sender      String?
+  description String?
+
+  createdById Int? @map("created_by_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([hostId, id])
+  @@index([reservationId])
+  @@map("host_deposits")
 }

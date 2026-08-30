@@ -16,6 +16,7 @@ import { RESERVATION_INCLUDE, releaseCalendarDays } from "@/modules/reservations
 import * as residencesService from "@/modules/residences/residences.service";
 import * as notify from "@/modules/notifications/events";
 import * as walletService from "@/modules/wallet/wallet.service";
+import * as reservationSettings from "@/modules/settings/reservationSettings.service";
 
 export async function getDashboardStats() {
   const [
@@ -161,6 +162,7 @@ const USER_SELECT_BASE = {
   isHost: true,
   isActive: true,
   isSpecialHost: true,
+  commissionPercent: true,
   role: true,
   createdAt: true,
   updatedAt: true,
@@ -369,6 +371,8 @@ export async function updateUser(
     isHost?: boolean;
     isActive?: boolean;
     isSpecialHost?: boolean;
+    /** Their own commission rate; null puts them back on the site-wide one. */
+    commissionPercent?: number | null;
     role?: "USER" | "ADMIN";
     verificationStatus?: "NOT_CONFIRMED" | "CHECKING" | "CONFIRMED";
     // profile fields, editable from the admin detail page
@@ -993,20 +997,46 @@ export async function updateReservationByAdmin(
   if (reservation.state !== "SECOND_PAYMENT") {
     throw AppError.badRequest("این رزرو در وضعیت قابل تکمیل نیست");
   }
+
+  // Bookings made before the commission rules existed carry no split at all.
+  // Filling it in here rather than skipping them is the difference between a
+  // host being paid late and a host never being paid: the credit below reads
+  // `hostShare`, and a null one silently pays nothing.
+  const split =
+    reservation.hostShare == null
+      ? await reservationSettings.breakdownForHost(reservation.hostId, reservation.totalAmount)
+      : null;
+
   const done = await prisma.reservation.update({
     where: { id },
-    data: { state: "DONE", paidAmount: reservation.totalAmount, remainingAmount: 0 },
+    data: {
+      state: "DONE",
+      paidAmount: reservation.totalAmount + (reservation.guestCommission ?? split?.guestCommission ?? 0),
+      remainingAmount: 0,
+      ...(split
+        ? {
+            websiteShare: split.websiteShare,
+            vatAmount: split.vatAmount,
+            guestCommission: split.guestCommission,
+            hostShare: split.hostShare,
+            commissionPercent: split.commissionPercent,
+            vatPercent: split.vatPercent,
+            guestCommissionPercent: split.guestCommissionPercent,
+          }
+        : {}),
+    },
     include: RESERVATION_INCLUDE,
   });
 
   // The host's share lands in the wallet, held rather than withdrawable: the
-  // booking is paid for, but the stay has not happened yet and a cancellation
+  // booking is paid for, but the guest has not arrived yet and a cancellation
   // still has to be able to take it back. `releaseMaturedEarnings` moves it to
-  // the withdrawable balance once the guest has checked out.
+  // the withdrawable balance on the day the stay starts.
   //
-  // `hostShare` comes from the Odoo migration and is already net of
-  // commission, so nothing is recomputed here — a second opinion on what the
-  // host is owed is exactly how the two numbers start disagreeing.
+  // `hostShare` is whatever was recorded on the booking — from the Odoo
+  // migration, from the rates in force when it was made, or filled in just
+  // above. Nothing is recomputed against today's rates here: a second opinion
+  // on what the host is owed is exactly how two numbers start disagreeing.
   //
   // Awaited, unlike the chat and notification hooks: this one is money. If it
   // fails, marking the reservation done should fail too, so the two cannot end
@@ -1026,7 +1056,13 @@ export async function updateReservationByAdmin(
 }
 
 /**
- * Moves held earnings to the withdrawable balance for stays that have ended.
+ * Moves held earnings to the withdrawable balance once a stay has matured.
+ *
+ * Maturity is the day the guest checks in, not the day they leave: by then the
+ * guest has arrived and the booking is no longer going to fall through, which
+ * is the only thing the hold was ever protecting against. Odoo settled on the
+ * same point — its host credits landed on average 2.2 days *before* the start
+ * date. `releaseOnStartDate` can push it back to check-out.
  *
  * Split from markDone because it happens on a date, not on an action. There is
  * no scheduler in this project yet, so it is exposed to the admin panel and
@@ -1034,10 +1070,13 @@ export async function updateReservationByAdmin(
  * running it twice in a day costs one query and changes nothing.
  */
 export async function releaseMaturedEarnings() {
+  const { releaseOnStartDate } = await reservationSettings.getSettings();
+  const now = new Date();
+
   const matured = await prisma.reservation.findMany({
     where: {
       state: "DONE",
-      endDate: { lt: new Date() },
+      ...(releaseOnStartDate ? { startDate: { lte: now } } : { endDate: { lt: now } }),
       // Only the ones whose income is still held.
       walletTransactions: { some: { kind: "BOOKING_INCOME" } },
     },

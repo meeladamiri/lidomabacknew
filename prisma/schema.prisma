@@ -839,6 +839,8 @@ model Reservation {
   conversation Conversation?
 
   walletTransactions WalletTransaction[]
+  payments           ReservationPayment[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -847,6 +849,64 @@ model Reservation {
   @@index([hostId])
   @@index([state])
   @@map("reservations")
+}
+
+/// چطور مهمان پرداخت کرد.
+///
+/// Odoo carried a gateway id and nothing for the rest, which is why every
+/// payment taken over the phone was recorded by editing `x_total_paid` and
+/// left no trace of how it arrived.
+enum ReservationPaymentMethod {
+  /// درگاه پرداخت
+  GATEWAY
+  /// کارت به کارت
+  CARD_TRANSFER
+  /// واریز بانکی / فیش
+  BANK_TRANSFER
+  /// نقدی
+  CASH
+  /// کیف پول
+  WALLET
+  OTHER
+}
+
+/// یک واریز مهمان.
+///
+/// `Reservation.paidAmount` was a single number, so a booking paid in three
+/// instalments could only record the sum — and 9,445 of Odoo's bookings were
+/// paid more than once, up to thirteen times. Every instalment is a row here
+/// and `paidAmount` is the cached total of the ones still standing.
+///
+/// Nothing is deleted. A payment entered wrongly is voided with a reason and
+/// stops counting; the row stays, because "we thought we had been paid on the
+/// 3rd" is exactly the fact a dispute turns on.
+model ReservationPayment {
+  id            Int         @id @default(autoincrement())
+  reservationId Int         @map("reservation_id")
+  reservation   Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+
+  amount Float
+  method ReservationPaymentMethod @default(CARD_TRANSFER)
+
+  /// When the money actually moved, which is not when someone typed it in.
+  paidAt DateTime @map("paid_at")
+
+  /// شماره پیگیری / شماره فیش
+  reference String?
+  note      String?
+
+  recordedById   Int?    @map("recorded_by_id")
+  recordedByName String? @map("recorded_by_name")
+
+  voidedAt     DateTime? @map("voided_at")
+  voidedReason String?   @map("voided_reason")
+  voidedById   Int?      @map("voided_by_id")
+
+  createdAt DateTime @default(now())
+
+  @@index([reservationId])
+  @@index([paidAt])
+  @@map("reservation_payments")
 }
 
 model ReservationRoom {

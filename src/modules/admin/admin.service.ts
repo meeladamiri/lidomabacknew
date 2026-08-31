@@ -818,9 +818,17 @@ export async function adminUpdateResidenceSpecs(
 export async function adminUpdateAmenities(
   id: number,
   amenities: Parameters<typeof residencesService.updateAmenities>[2],
-  other?: string
+  other?: string,
+  scopeIds?: number[]
 ) {
-  return residencesService.updateAmenities(await resolveHostIdForResidence(id), id, amenities, other);
+  return residencesService.updateAmenities(
+    await resolveHostIdForResidence(id),
+    id,
+    amenities,
+    other,
+    undefined,
+    scopeIds
+  );
 }
 
 export async function adminUpdateRules(id: number, data: Parameters<typeof residencesService.updateRules>[2]) {

@@ -201,7 +201,12 @@ export async function updateResidenceSpecs(req: Request, res: Response) {
 }
 
 export async function updateResidenceAmenities(req: Request, res: Response) {
-  const data = await service.adminUpdateAmenities(Number(req.params.id), req.body.amenities, req.body.other);
+  const data = await service.adminUpdateAmenities(
+    Number(req.params.id),
+    req.body.amenities,
+    req.body.other,
+    req.body.scopeIds
+  );
   return ok(res, data);
 }
 

@@ -323,12 +323,27 @@ export async function updateSpecs(
   });
 }
 
+/**
+ * Replaces a listing's amenities.
+ *
+ * `scopeIds` limits what may be replaced. Without it this wipes every amenity
+ * and recreates the list it was given, which is right for the wizard — it
+ * submits the whole answer — and was wrong for the panel's amenities tab,
+ * which shows a grid that deliberately excludes «نوع اقامتگاه» and «منطقه
+ * اقامتگاه». Saving that grid deleted both, and with them the listing's place
+ * on every SEO tag page built from them.
+ *
+ * With a scope, an editor declares what it is responsible for and the server
+ * cannot destroy anything else — a stale page can no longer drop a field it
+ * never displayed.
+ */
 export async function updateAmenities(
   hostId: number,
   id: number,
   amenities: { amenityId: number; extraFeatures?: Record<string, unknown> }[],
   other?: string,
-  step?: number
+  step?: number,
+  scopeIds?: number[]
 ) {
   const residence = await assertOwnership(hostId, id);
   const advance = stepPatch(residence.step, step);
@@ -336,7 +351,12 @@ export async function updateAmenities(
     if (Object.keys(advance).length > 0) {
       await tx.residence.update({ where: { id }, data: advance });
     }
-    await tx.residenceAmenity.deleteMany({ where: { residenceId: id } });
+    await tx.residenceAmenity.deleteMany({
+      where: {
+        residenceId: id,
+        ...(scopeIds ? { amenityId: { in: [...new Set([...scopeIds, ...amenities.map((a) => a.amenityId)])] } } : {}),
+      },
+    });
     if (amenities.length > 0) {
       await tx.residenceAmenity.createMany({
         data: amenities.map((a) => ({

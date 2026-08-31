@@ -62,6 +62,12 @@ export const updateAmenitiesSchema = z.object({
     // Wizard progress, folded into this write so the front does not need a
     // second PATCH to advance it. Never moves backward — see stepPatch.
     step: z.number().int().min(0).max(14).optional(),
+    /**
+     * The amenity ids this editor is responsible for. Anything outside the
+     * scope is left alone — see `updateAmenities`. Omitted by the wizard,
+     * which submits the whole answer and means to replace it.
+     */
+    scopeIds: z.array(z.number().int()).optional(),
   }),
 });
 

@@ -964,10 +964,18 @@ model Review {
   comment    String
   hostAnswer String? @map("host_answer")
 
+  /// Taken down by an admin, without being destroyed. A review is a guest's
+  /// statement: a host disputing one, or a guest asking why theirs vanished,
+  /// both need the row to still exist. `hiddenAt IS NULL` is the public filter.
+  hiddenAt     DateTime? @map("hidden_at")
+  hiddenReason String?   @map("hidden_reason")
+  hiddenById   Int?      @map("hidden_by_id")
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([residenceId])
+  @@index([residenceId, hiddenAt])
   @@index([guestId])
   @@map("reviews")
 }

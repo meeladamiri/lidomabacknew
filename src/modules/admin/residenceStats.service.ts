@@ -128,9 +128,12 @@ export async function getStats(scope: StatsScope) {
       }),
 
       prisma.review.aggregate({
+        // Hidden reviews are excluded everywhere they are counted, not just
+        // where they are read — a review taken down still dragging the
+        // average is the failure this feature would otherwise ship with.
         where: scope.residenceId
-          ? { residenceId: scope.residenceId }
-          : { residence: { hostId: scope.hostId! } },
+          ? { residenceId: scope.residenceId, hiddenAt: null }
+          : { residence: { hostId: scope.hostId! }, hiddenAt: null },
         _count: true,
         _avg: {
           averageRating: true,
@@ -148,9 +151,12 @@ export async function getStats(scope: StatsScope) {
       // twenty-four fours.
       prisma.review.groupBy({
         by: ["averageRating"],
+        // Hidden reviews are excluded everywhere they are counted, not just
+        // where they are read — a review taken down still dragging the
+        // average is the failure this feature would otherwise ship with.
         where: scope.residenceId
-          ? { residenceId: scope.residenceId }
-          : { residence: { hostId: scope.hostId! } },
+          ? { residenceId: scope.residenceId, hiddenAt: null }
+          : { residence: { hostId: scope.hostId! }, hiddenAt: null },
         _count: true,
       }),
 

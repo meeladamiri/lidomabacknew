@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type Request, type Response, type NextFunction } from "express";
 import { z } from "zod";
 import { asyncHandler } from "@/middleware/asyncHandler";
 import { validate } from "@/middleware/validate";
@@ -11,6 +11,11 @@ import {
   CLASSIFICATION_KEYS,
 } from "./residenceClassification.service";
 import { getStats } from "./residenceStats.service";
+import { listForResidence, hideReview, unhideReview, answerReview } from "./reviews.service";
+import { prisma } from "@/lib/prisma";
+import { upload, fileToUrl, deleteStoredFile } from "@/middleware/upload";
+import { AppError } from "@/lib/errors";
+import * as activity from "@/modules/activity/activity.service";
 
 /** Listing-level actions the detail page needs. Mounted under the admin router. */
 const router = Router();
@@ -114,5 +119,189 @@ router.get(
     return ok(res, await getStats({ residenceId: id }));
   })
 );
+
+// ---------------------------------------------------------------- نظرات
+
+/**
+ * Every review of this listing, hidden ones included.
+ *
+ * The panel is the one place that must see a hidden review — it is where the
+ * decision to hide it is reviewed and, sometimes, reversed.
+ */
+router.get(
+  "/residences/:id/reviews",
+  validate(z.object({ params: idParam })),
+  asyncHandler(async (req, res) => {
+    const { id } = req.params as unknown as { id: number };
+    return ok(res, await listForResidence(id, { includeHidden: true }));
+  })
+);
+
+router.post(
+  "/reviews/:reviewId/hide",
+  validate(
+    z.object({
+      params: z.object({ reviewId: z.coerce.number().int().positive() }),
+      // Required. "Why is this review not on the site" is the only question
+      // anyone asks later, and it is asked by people who can see the row.
+      body: z.object({ reason: z.string().trim().min(1).max(500) }),
+    })
+  ),
+  asyncHandler(async (req, res) => {
+    const { reviewId } = req.params as unknown as { reviewId: number };
+    return ok(res, await hideReview(reviewId, req.body.reason, req.user!.sub));
+  })
+);
+
+router.post(
+  "/reviews/:reviewId/unhide",
+  validate(z.object({ params: z.object({ reviewId: z.coerce.number().int().positive() }) })),
+  asyncHandler(async (req, res) => {
+    const { reviewId } = req.params as unknown as { reviewId: number };
+    return ok(res, await unhideReview(reviewId, req.user!.sub));
+  })
+);
+
+router.put(
+  "/reviews/:reviewId/answer",
+  validate(
+    z.object({
+      params: z.object({ reviewId: z.coerce.number().int().positive() }),
+      body: z.object({ answer: z.string().trim().min(1).max(2000) }),
+    })
+  ),
+  asyncHandler(async (req, res) => {
+    const { reviewId } = req.params as unknown as { reviewId: number };
+    return ok(res, await answerReview(reviewId, req.body.answer, req.user!.sub));
+  })
+);
+
+// --------------------------------------------------------- مدرک مالکیت
+
+/**
+ * The three identity and ownership files a listing carries.
+ *
+ * They live in columns on the residence rather than a table, because there is
+ * exactly one of each and they answer three fixed questions: is this property
+ * what the host says it is, is the host who they say they are, and — when the
+ * host is not the owner — who is.
+ */
+const DOCUMENT_FIELDS = {
+  document: "documentUrl",
+  hostCard: "hostNationalCardUrl",
+  ownerCard: "ownerNationalCardUrl",
+} as const;
+
+type DocumentKind = keyof typeof DOCUMENT_FIELDS;
+
+/**
+ * Rejects an unknown document kind before multer runs.
+ *
+ * Order matters here: multer stores the file as it parses the request, so
+ * validating inside the handler means a bad kind has already uploaded a file
+ * to object storage that nothing will ever reference or clean up.
+ */
+function requireDocumentKind(req: Request, _res: Response, next: NextFunction) {
+  if (!(req.params.kind in DOCUMENT_FIELDS)) {
+    return next(AppError.badRequest("نوع مدرک نامعتبر است"));
+  }
+  return next();
+}
+
+router.get(
+  "/residences/:id/documents",
+  validate(z.object({ params: idParam })),
+  asyncHandler(async (req, res) => {
+    const { id } = req.params as unknown as { id: number };
+    const residence = await prisma.residence.findUnique({
+      where: { id },
+      select: {
+        documentUrl: true,
+        hostNationalCardUrl: true,
+        ownerNationalCardUrl: true,
+        host: { select: { id: true, name: true, phone: true, verificationStatus: true } },
+      },
+    });
+    if (!residence) throw AppError.notFound("اقامتگاه پیدا نشد");
+    return ok(res, residence);
+  })
+);
+
+router.post(
+  "/residences/:id/documents/:kind",
+  requireDocumentKind,
+  upload.single("file"),
+  asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    const kind = req.params.kind as DocumentKind;
+    const field = DOCUMENT_FIELDS[kind];
+    if (!field) throw AppError.badRequest("نوع مدرک نامعتبر است");
+    if (!req.file) throw AppError.badRequest("فایلی ارسال نشد");
+
+    const existing = await prisma.residence.findUnique({
+      where: { id },
+      select: { [field]: true } as never,
+    });
+    if (!existing) throw AppError.notFound("اقامتگاه پیدا نشد");
+
+    const url = fileToUrl(req.file);
+    await prisma.residence.update({ where: { id }, data: { [field]: url } });
+
+    // Replacing a document leaves the old file orphaned in storage otherwise.
+    // Best-effort, after the row is written: a storage hiccup must not undo a
+    // document the panel has already been told was saved.
+    const previous = (existing as Record<string, string | null>)[field];
+    if (previous && previous !== url) void deleteStoredFile(previous);
+
+    activityLogDocument(id, kind, "بارگذاری شد", req.user!.sub);
+    return ok(res, { kind, url });
+  })
+);
+
+router.delete(
+  "/residences/:id/documents/:kind",
+  requireDocumentKind,
+  asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    const kind = req.params.kind as DocumentKind;
+    const field = DOCUMENT_FIELDS[kind];
+    if (!field) throw AppError.badRequest("نوع مدرک نامعتبر است");
+
+    const existing = await prisma.residence.findUnique({
+      where: { id },
+      select: { [field]: true } as never,
+    });
+    if (!existing) throw AppError.notFound("اقامتگاه پیدا نشد");
+
+    await prisma.residence.update({ where: { id }, data: { [field]: null } });
+
+    const previous = (existing as Record<string, string | null>)[field];
+    if (previous) void deleteStoredFile(previous);
+
+    activityLogDocument(id, kind, "حذف شد", req.user!.sub);
+    return ok(res, { kind, url: null });
+  })
+);
+
+const DOCUMENT_LABEL: Record<DocumentKind, string> = {
+  document: "سند/مدرک مالکیت",
+  hostCard: "کارت ملی میزبان",
+  ownerCard: "کارت ملی مالک",
+};
+
+function activityLogDocument(
+  residenceId: number,
+  kind: DocumentKind,
+  what: string,
+  actorId: number
+) {
+  activity.log({
+    kind: "FIELD_CHANGE",
+    residenceId,
+    summary: `${DOCUMENT_LABEL[kind]} ${what}`,
+    actorId,
+    source: "ADMIN",
+  });
+}
 
 export default router;

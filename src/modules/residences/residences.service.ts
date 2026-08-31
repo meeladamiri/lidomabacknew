@@ -81,6 +81,9 @@ export async function getResidenceDetail(rawId: number) {
       rules: { include: { rule: true } },
       host: { select: { id: true, name: true, avatarUrl: true, createdAt: true } },
       reviews: {
+        // A hidden review is hidden here first — this is the page it was
+        // taken down from.
+        where: { hiddenAt: null },
         orderBy: { createdAt: "desc" },
         take: 20,
         include: { guest: { select: { name: true } } },
@@ -160,7 +163,7 @@ export async function getHostProfile(hostId: number) {
     prisma.reservation.count({ where: { hostId } }),
     prisma.reservation.count({ where: { hostId, state: { in: ["SECOND_PAYMENT", "DONE"] } } }),
     prisma.review.findMany({
-      where: { residence: { hostId } },
+      where: { residence: { hostId }, hiddenAt: null },
       orderBy: { createdAt: "desc" },
       take: 20,
       include: {

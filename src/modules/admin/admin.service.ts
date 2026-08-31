@@ -17,6 +17,7 @@ import * as residencesService from "@/modules/residences/residences.service";
 import * as notify from "@/modules/notifications/events";
 import * as walletService from "@/modules/wallet/wallet.service";
 import * as reservationSettings from "@/modules/settings/reservationSettings.service";
+import { hostRulesText, hostRuleNotes } from "@/modules/residences/hostRules";
 
 export async function getDashboardStats() {
   const [
@@ -730,6 +731,10 @@ export async function getResidence(id: number) {
     ...rest,
     // legacy-URL contract: the public "کد اقامتگاه" is the Odoo id
     publicId: publicResidenceId(residence),
+    //  is a JSON blob on 2,555 of the 2,557 migrated listings that
+    // have it. These two are the readable parts of it — see hostRules.ts.
+    hostRulesText: hostRulesText(residence.rulesDesc, residence.extraRules),
+    hostRuleNotes: hostRuleNotes(residence.rulesDesc, residence.extraRules),
     host: host && {
       ...host,
       residencesCount: host._count.residences,

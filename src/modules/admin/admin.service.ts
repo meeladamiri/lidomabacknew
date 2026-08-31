@@ -966,11 +966,77 @@ export async function listReservations(params: {
   };
 }
 
+/**
+ * The admin's view of one booking.
+ *
+ * `RESERVATION_INCLUDE` is shared with the guest- and host-facing endpoints,
+ * so it deliberately carries nothing but a name, a phone and an avatar for the
+ * two people. The panel needs more than that — a wallet balance, whether the
+ * documents are verified, how the host is rated — and widening the shared
+ * include would hand all of it to the other side of the booking as well.
+ *
+ * So it is fetched separately and attached as `guestProfile` / `hostProfile`.
+ */
 export async function getReservation(id: number) {
-  return prisma.reservation.findUniqueOrThrow({
+  const reservation = await prisma.reservation.findUniqueOrThrow({
     where: { id },
     include: RESERVATION_INCLUDE,
   });
+
+  const [guestProfile, hostProfile] = await Promise.all([
+    partyProfile(reservation.guestId),
+    partyProfile(reservation.hostId, { withHostRating: true }),
+  ]);
+
+  return { ...reservation, guestProfile, hostProfile };
+}
+
+/** The extra columns the reservation page shows about a guest or a host. */
+async function partyProfile(userId: number, opts: { withHostRating?: boolean } = {}) {
+  const [user, wallet, rating] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        nationalCode: true,
+        nationalCardUrl: true,
+        verificationStatus: true,
+        isSpecialHost: true,
+        isHost: true,
+        createdAt: true,
+        location: { select: { name: true } },
+      },
+    }),
+    prisma.wallet.findUnique({
+      where: { userId },
+      select: { balance: true, blockedBalance: true },
+    }),
+    opts.withHostRating
+      ? prisma.residence.aggregate({
+          where: { hostId: userId },
+          _avg: { averageRating: true },
+          _sum: { reviewsCount: true },
+          _count: true,
+        })
+      : Promise.resolve(null),
+  ]);
+
+  if (!user) return null;
+
+  return {
+    ...user,
+    // A missing wallet row means the user has never had a transaction, which
+    // is a zero balance rather than an unknown one.
+    walletBalance: wallet?.balance ?? 0,
+    walletBlocked: wallet?.blockedBalance ?? 0,
+    ...(rating
+      ? {
+          hostRating: rating._avg.averageRating ?? 0,
+          hostReviewsCount: rating._sum.reviewsCount ?? 0,
+          residencesCount: rating._count,
+        }
+      : {}),
+  };
 }
 
 type AdminReservationAction = "cancel" | "forceApprove" | "markDone";

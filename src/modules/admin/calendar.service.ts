@@ -273,6 +273,82 @@ export async function updateAdminCalendar(input: AdminCalendarUpdate) {
  * because "the total changed by 200,000" is not something anyone can approve.
  * The night that moved is the thing worth seeing.
  */
+export interface PriceBucket {
+  key: string;
+  label: string;
+  nights: number;
+  unit_price: number;
+  total: number;
+}
+
+/**
+ * The nights, grouped into the rows the pricing screen shows.
+ *
+ * Each night falls in exactly one bucket, in the same order of precedence the
+ * pricing itself uses: a special price on the day wins, then peak, then
+ * weekend, then the base rate. Special prices are grouped by their amount and
+ * numbered, because a stay can carry two different ones and a single «قیمت
+ * خاص» row would hide that.
+ *
+ * The base rows are emitted even when empty — a nightly rate table with the
+ * weekend row missing reads as "no weekend rate exists" rather than "no
+ * weekend nights in this stay".
+ */
+function priceBuckets(
+  pricing: ReturnType<typeof calculateStayPrice>,
+  extra: { extraGuestsPrice: number | null; extraGuestsCount: number }
+): PriceBucket[] {
+  const base = { week: 0, weekend: 0, peak: 0 };
+  const baseUnit = { week: 0, weekend: 0, peak: 0 };
+  const specials = new Map<number, number>();
+
+  for (const night of pricing.nightlyBreakdown) {
+    if (night.isSpecial) {
+      specials.set(night.unitPrice, (specials.get(night.unitPrice) ?? 0) + 1);
+    } else if (night.isPeak) {
+      base.peak++;
+      baseUnit.peak = night.unitPrice;
+    } else if (night.isWeekend) {
+      base.weekend++;
+      baseUnit.weekend = night.unitPrice;
+    } else {
+      base.week++;
+      baseUnit.week = night.unitPrice;
+    }
+  }
+
+  const rows: PriceBucket[] = [
+    { key: "week", label: "وسط هفته", nights: base.week, unit_price: baseUnit.week, total: base.week * baseUnit.week },
+    { key: "weekend", label: "آخر هفته", nights: base.weekend, unit_price: baseUnit.weekend, total: base.weekend * baseUnit.weekend },
+    { key: "peak", label: "ایام پیک", nights: base.peak, unit_price: baseUnit.peak, total: base.peak * baseUnit.peak },
+  ];
+
+  [...specials.entries()]
+    .sort((a, b) => b[0] - a[0])
+    .forEach(([unitPrice, nights], i) => {
+      rows.push({
+        key: `special-${i + 1}`,
+        label: `قیمت خاص میزبان ${i + 1}`,
+        nights,
+        unit_price: unitPrice,
+        total: nights * unitPrice,
+      });
+    });
+
+  // Extra guests are charged per person per night, so the "nights" column is
+  // the stay length and the unit is the per-person rate times the headcount.
+  const extraUnit = (extra.extraGuestsPrice ?? 0) * extra.extraGuestsCount;
+  rows.push({
+    key: "extra-guests",
+    label: "نرخ هر نفر اضافه",
+    nights: extra.extraGuestsCount > 0 ? pricing.nights : 0,
+    unit_price: extraUnit,
+    total: pricing.extraGuestsTotal,
+  });
+
+  return rows;
+}
+
 export async function repriceQuote(reservationId: number) {
   const reservation = await prisma.reservation.findUnique({
     where: { id: reservationId },
@@ -374,6 +450,22 @@ export async function repriceQuote(reservationId: number) {
       clear_remainder: nextRemainder - currentRemainder,
     },
     nights: pricing.nightlyBreakdown,
+    // The same nights grouped the way the pricing screen asks about them —
+    // «۳ شب وسط هفته × ۵٬۰۰۰٬۰۰۰». Grouped here rather than in the browser
+    // because which night counts as a weekend, and whether a special price
+    // beats a peak one, are pricing rules; a second copy of them in the
+    // frontend is a second copy that can disagree with the invoice.
+    buckets: priceBuckets(pricing, {
+      extraGuestsPrice: residence.extraGuestsPrice,
+      extraGuestsCount: reservation.extraGuestsCount,
+    }),
+    totals: {
+      subtotal: pricing.subtotal,
+      extra_guests_total: pricing.extraGuestsTotal,
+      discount_percent: pricing.discountPercent,
+      discount_amount: pricing.discountAmount,
+      reservation_amount: pricing.totalAmount,
+    },
     settled_amount: reservation.settledAmount,
     // Stated rather than left to be inferred: these are the two cases where
     // applying has a consequence beyond the numbers on this booking.

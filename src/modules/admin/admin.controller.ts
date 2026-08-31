@@ -353,7 +353,11 @@ export async function cancelQuote(req: Request, res: Response) {
 /** Moves a booking between states by hand, with the reason attached. */
 export async function changeReservationState(req: Request, res: Response) {
   const { id } = req.params as unknown as { id: number };
-  const { toState, note } = req.body as { toState: ReservationState; note: string };
+  const { toState, note, notify } = req.body as {
+    toState: ReservationState;
+    note: string;
+    notify?: boolean;
+  };
 
   return ok(
     res,
@@ -361,6 +365,7 @@ export async function changeReservationState(req: Request, res: Response) {
       reservationId: id,
       toState,
       note,
+      notify,
       actorId: req.user!.sub,
     })
   );

@@ -58,6 +58,9 @@ router.patch(
   })
 );
 
+/** Draft rates: one price per night, keyed by date. */
+const DRAFT = z.record(z.string().regex(DATE), z.number().min(0)).optional();
+
 /** The before/after preview. Read-only, and the only way to reach the apply. */
 router.get(
   "/reservations/:id/reprice",
@@ -68,18 +71,42 @@ router.get(
   })
 );
 
+/**
+ * The same preview, priced with rates the panel has typed but not saved.
+ *
+ * A POST because the draft can cover a year of nights and does not belong in
+ * a query string; it still writes nothing.
+ */
+router.post(
+  "/reservations/:id/reprice/preview",
+  validate(
+    z.object({
+      params: z.object({ id: z.coerce.number().int().positive() }),
+      body: z.object({ draft: DRAFT }),
+    })
+  ),
+  asyncHandler(async (req, res) => {
+    const { id } = req.params as unknown as { id: number };
+    const { draft } = req.body as { draft?: calendar.DraftRates };
+    return ok(res, await calendar.repriceQuote(id, draft));
+  })
+);
+
 router.post(
   "/reservations/:id/reprice",
   validate(
     z.object({
       params: z.object({ id: z.coerce.number().int().positive() }),
-      body: z.object({ note: z.string().min(3).max(500) }),
+      body: z.object({ note: z.string().min(3).max(500), draft: DRAFT }),
     })
   ),
   asyncHandler(async (req, res) => {
     const { id } = req.params as unknown as { id: number };
-    const { note } = req.body as { note: string };
-    return ok(res, await calendar.applyReprice({ reservationId: id, note, actorId: req.user!.sub }));
+    const { note, draft } = req.body as { note: string; draft?: calendar.DraftRates };
+    return ok(
+      res,
+      await calendar.applyReprice({ reservationId: id, note, draft, actorId: req.user!.sub })
+    );
   })
 );
 

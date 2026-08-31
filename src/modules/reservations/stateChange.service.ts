@@ -127,6 +127,16 @@ export interface ChangeStateInput {
   /** Required. The sentence a person had to write before the state would move. */
   note: string;
   actorId: number;
+  /**
+   * Whether the two sides hear about it. Default on.
+   *
+   * Off is for the corrections — a booking advanced by mistake and moved
+   * straight back, a state fixed weeks after the fact — where telling the
+   * guest their trip was just approved would be a lie about the present.
+   * The choice is recorded either way, so nobody has to guess later why a
+   * host says they were never told.
+   */
+  notify?: boolean;
 }
 
 /**
@@ -216,7 +226,12 @@ export async function changeState(input: ChangeStateInput) {
       reservationId: reservation.id,
       fromState: from,
       toState: to,
-      note,
+      // Whether the parties were told is part of what happened, so it is in
+      // the note rather than in a column nobody reads.
+      note:
+        input.notify === false
+          ? `${note}\n(بدون اطلاع‌رسانی به مهمان و میزبان)`
+          : note,
       changedById: input.actorId,
       changedByName: actorName,
       source: "MANUAL",
@@ -279,12 +294,16 @@ export async function changeState(input: ChangeStateInput) {
     await releaseCalendarDays(reservation.residenceId, reservation.startDate, reservation.endDate);
   }
 
+  const shouldNotify = input.notify !== false;
+
   if (to === "SECOND_PAYMENT" && from === "HOST_APPROVAL") {
+    // The chat hook runs either way: it opens the booking's conversation, and
+    // a booking with no thread is a booking support cannot answer.
     onReservationStateChanged(reservation.id, "BOOKING_APPROVED");
-    notify.onReservationStateChanged(reservation.id, "BOOKING_APPROVED");
+    if (shouldNotify) notify.onReservationStateChanged(reservation.id, "BOOKING_APPROVED");
   }
 
-  if (to === "DONE") {
+  if (to === "DONE" && shouldNotify) {
     notify.onReservationStateChanged(reservation.id, "BOOKING_COMPLETED");
   }
 

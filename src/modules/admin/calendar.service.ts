@@ -349,7 +349,41 @@ function priceBuckets(
   return rows;
 }
 
-export async function repriceQuote(reservationId: number) {
+/**
+ * A night the panel has typed a new rate into but not saved yet.
+ *
+ * Draft rates are priced here rather than in the browser so that the preview
+ * an agent approves comes out of the same code that will write the invoice.
+ * The alternative — the frontend adding up its own numbers — is two pricing
+ * implementations that agree right up until a discount tier applies.
+ */
+export type DraftRates = Record<string, number>;
+
+/** The stored calendar with the draft rates laid over it, for one date range. */
+function mergeDraft(
+  stored: { date: Date; specialPrice: number | null; isPeak: boolean }[],
+  draft: DraftRates,
+  from: Date,
+  to: Date
+) {
+  const byDate = new Map(stored.map((d) => [iso(d.date), d]));
+
+  for (const [key, price] of Object.entries(draft)) {
+    const date = new Date(`${key}T00:00:00.000Z`);
+    if (Number.isNaN(date.getTime()) || date < from || date >= to) continue;
+
+    const existing = byDate.get(key);
+    byDate.set(key, {
+      date,
+      specialPrice: price,
+      isPeak: existing?.isPeak ?? false,
+    });
+  }
+
+  return [...byDate.values()];
+}
+
+export async function repriceQuote(reservationId: number, draft?: DraftRates) {
   const reservation = await prisma.reservation.findUnique({
     where: { id: reservationId },
     select: {
@@ -382,7 +416,7 @@ export async function repriceQuote(reservationId: number) {
   });
   if (!residence) throw AppError.notFound("اقامتگاه پیدا نشد");
 
-  const overrides = await prisma.calendarDay.findMany({
+  const stored = await prisma.calendarDay.findMany({
     where: {
       residenceId: reservation.residenceId,
       roomId: null,
@@ -390,6 +424,12 @@ export async function repriceQuote(reservationId: number) {
     },
     select: { date: true, specialPrice: true, isPeak: true },
   });
+
+  // A draft rate behaves exactly like a special price on that night, which is
+  // what saving it would eventually make it.
+  const overrides = draft
+    ? mergeDraft(stored, draft, reservation.startDate, reservation.endDate)
+    : stored;
 
   const pricing = calculateStayPrice({
     residence,
@@ -487,14 +527,27 @@ export async function repriceQuote(reservationId: number) {
  * numbers sent by the client — a total that arrived in a request body is a
  * total somebody could have edited.
  */
-export async function applyReprice(input: { reservationId: number; note: string; actorId: number }) {
+export async function applyReprice(input: {
+  reservationId: number;
+  note: string;
+  actorId: number;
+  /**
+   * Rates typed in the panel but not written to the calendar.
+   *
+   * This is how «فقط برای این رزرو» works: the booking is priced with these
+   * nights, the listing's calendar keeps the rates every other booking and
+   * every future guest sees. Without it the only way to change one booking
+   * would be to change the listing, which is a different decision.
+   */
+  draft?: DraftRates;
+}) {
   const note = input.note?.trim();
   if (!note) throw AppError.badRequest("توضیح تغییر نرخ الزامی است");
 
-  const quote = await repriceQuote(input.reservationId);
+  const quote = await repriceQuote(input.reservationId, input.draft);
 
   if (Math.abs(quote.difference.total_amount) < 1) {
-    throw AppError.badRequest("نرخ این رزرو با تقویم فعلی تفاوتی ندارد");
+    throw AppError.badRequest("نرخ این رزرو تفاوتی با مقدار فعلی ندارد");
   }
 
   const before = quote.before;

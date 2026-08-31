@@ -182,6 +182,9 @@ export const changeStateSchema = z.object({
     // Required by the schema, not just the form: the audit line is the whole
     // reason this endpoint exists, and an optional reason is one left empty.
     note: z.string().min(3).max(1000),
+    // Default on: the ordinary case is that the two sides should hear about
+    // it, and a flag that has to be remembered is a flag that gets forgotten.
+    notify: z.boolean().optional(),
   }),
 });
 

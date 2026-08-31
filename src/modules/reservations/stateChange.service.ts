@@ -50,7 +50,11 @@ const ALLOWED: Record<ReservationState, ReservationState[]> = {
   DRAFT: ["HOST_APPROVAL"],
   HOST_APPROVAL: ["DRAFT", "SECOND_PAYMENT", "EXPIRED"],
   SECOND_PAYMENT: ["HOST_APPROVAL", "DONE", "EXPIRED"],
-  DONE: ["SECOND_PAYMENT"],
+  // A booking marked «قطعی» in error has to go all the way back, not one step:
+  // the mistake is usually "this was never approved", and stopping at
+  // «پرداخت مهمان» leaves it in a state nobody agreed to either. Leaving DONE
+  // reverses the host's credited income — see `reverseHostIncome`.
+  DONE: ["SECOND_PAYMENT", "HOST_APPROVAL"],
   EXPIRED: ["HOST_APPROVAL", "SECOND_PAYMENT"],
   CANCEL: [],
 };
@@ -288,6 +292,15 @@ export async function changeState(input: ChangeStateInput) {
     }
   }
 
+  // Leaving «قطعی» takes the host's income back with it. Entering DONE credits
+  // the wallet; without the matching reversal, moving a booking back and forth
+  // left a host holding income for a booking that is no longer complete — and
+  // the guard against double-crediting meant re-entering DONE would not even
+  // notice, so the balance stayed wrong quietly.
+  if (from === "DONE" && to !== "DONE") {
+    await reverseHostIncome(reservation.id, reservation.hostId, reservation.reference);
+  }
+
   // Going back to a pre-booking state hands the dates back, because a booking
   // that is no longer live must not keep a calendar blocked.
   if (to === "DRAFT" || to === "EXPIRED") {
@@ -313,6 +326,66 @@ export async function changeState(input: ChangeStateInput) {
     to,
     label: STATE_LABELS[to],
   };
+}
+
+/**
+ * Takes back the income credited when a booking reached «قطعی».
+ *
+ * The credit is held (`blocked`) until the stay matures, so the ordinary case
+ * is simply removing it from the blocked balance. What is already settled is
+ * *not* clawed back: that money has left the building, and inventing a
+ * negative balance for a host who was paid correctly at the time would be a
+ * worse lie than a booking whose state moved.
+ *
+ * The reversal is a transaction of its own rather than a deletion, so the
+ * host's statement still explains where the money went and came back.
+ */
+async function reverseHostIncome(reservationId: number, hostId: number, reference: string) {
+  const credit = await prisma.walletTransaction.findFirst({
+    where: { reservationId, kind: "BOOKING_INCOME" },
+    select: { id: true, amount: true },
+  });
+  if (!credit) return;
+
+  const already = await prisma.walletTransaction.findFirst({
+    where: { reservationId, kind: "ADJUSTMENT", amount: { lt: 0 } },
+    select: { id: true },
+  });
+  if (already) return;
+
+  const [wallet, reservation] = await Promise.all([
+    prisma.wallet.findUnique({ where: { userId: hostId } }),
+    prisma.reservation.findUnique({
+      where: { id: reservationId },
+      select: { settledAmount: true },
+    }),
+  ]);
+  if (!wallet) return;
+
+  const settled = reservation?.settledAmount ?? 0;
+  const reversible = Math.max(credit.amount - settled, 0);
+  if (reversible < 1) return;
+
+  await prisma.$transaction([
+    prisma.wallet.update({
+      where: { id: wallet.id },
+      data: { blockedBalance: Math.max(wallet.blockedBalance - reversible, 0) },
+    }),
+    prisma.walletTransaction.create({
+      data: {
+        walletId: wallet.id,
+        kind: "ADJUSTMENT",
+        amount: -reversible,
+        balanceAfter: wallet.balance,
+        description: `برگشت درآمد بابت خروج رزرو ${reference} از وضعیت قطعی`,
+        reservationId,
+      },
+    }),
+    prisma.reservation.update({
+      where: { id: reservationId },
+      data: { clearRemainder: null },
+    }),
+  ]);
 }
 
 /** The booking's history, newest first. */

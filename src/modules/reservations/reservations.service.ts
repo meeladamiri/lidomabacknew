@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { AppError } from "@/lib/errors";
 import { onReservationCreated, onReservationStateChanged } from "@/modules/conversations/bookingHooks";
 import * as notify from "@/modules/notifications/events";
-import { generateReference } from "@/utils/reference";
+import { nextReservationReference } from "@/utils/reference";
 import { calculateStayPrice } from "./pricing";
 import {
   computeBreakdown,
@@ -220,7 +220,7 @@ export async function createReservation(
 
       const created = await tx.reservation.create({
         data: {
-          reference: generateReference("RSV-"),
+          reference: await nextReservationReference(tx),
           residenceId: residence.id,
           guestId,
           hostId: residence.hostId,

@@ -902,7 +902,9 @@ model ReservationPayment {
   voidedReason String?   @map("voided_reason")
   voidedById   Int?      @map("voided_by_id")
 
-  createdAt DateTime @default(now())
+  // Mapped, unlike `Reservation.createdAt` which is a bare camelCase column.
+  // This table is snake_case throughout and the migration created it that way.
+  createdAt DateTime @default(now()) @map("created_at")
 
   @@index([reservationId])
   @@index([paidAt])

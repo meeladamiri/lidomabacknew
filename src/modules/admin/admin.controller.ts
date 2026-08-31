@@ -8,7 +8,20 @@ import * as cancellationService from "@/modules/reservations/cancellation.servic
 import * as stateService from "@/modules/reservations/stateChange.service";
 import type { ReservationState } from "@prisma/client";
 
+/**
+ * A number out of a query string — which may already be a number.
+ *
+ * `validate()` replaces `req.query` with the *parsed* object, and the list
+ * schema declares `page`, `pageSize` and `residenceId` as `z.coerce.number()`.
+ * So by the time a controller reads them they are numbers, and rejecting
+ * anything that is not a string silently dropped every one of them: the
+ * residence filter was ignored and paging always fell back to page 1.
+ */
 function getOptionalNumber(value: unknown): number | undefined {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : undefined;
+  }
+
   if (typeof value !== "string" || value.trim() === "") {
     return undefined;
   }

@@ -10,6 +10,7 @@ import {
   setClassification,
   CLASSIFICATION_KEYS,
 } from "./residenceClassification.service";
+import { getStats } from "./residenceStats.service";
 
 /** Listing-level actions the detail page needs. Mounted under the admin router. */
 const router = Router();
@@ -96,6 +97,21 @@ router.patch(
       res,
       await setClassification({ residenceId: id, ...body, actorId: req.user!.sub })
     );
+  })
+);
+
+/**
+ * آمار اقامتگاه — reservations, nights, income, reviews, favourites, views.
+ *
+ * The same service the host's own statistics page reads, so the two cannot
+ * disagree about what a listing earned.
+ */
+router.get(
+  "/residences/:id/stats",
+  validate(z.object({ params: idParam })),
+  asyncHandler(async (req, res) => {
+    const { id } = req.params as unknown as { id: number };
+    return ok(res, await getStats({ residenceId: id }));
   })
 );
 

@@ -571,6 +571,7 @@ model Residence {
   calendarDays   CalendarDay[]
   reservations   Reservation[]
   favouritedBy   Favourite[]
+  views          ResidenceView[]
   reviews        Review[]
   conversations  Conversation[]
 
@@ -972,6 +973,27 @@ model Review {
 }
 
 // ---------- Favourites ----------
+
+/// Page views per listing per day — a counter, not a row per view.
+///
+/// Nothing ever recorded a view before this: the schema had no table, and
+/// Odoo's res_users_viewed_products stops at 2021-06-07 with a null count.
+/// So the panel's charts start from the day this shipped, and cannot show
+/// history that was never collected.
+///
+/// Counts renders, not people. Telling visitors apart needs per-visitor rows,
+/// which this deliberately is not — the panel says «بازدید», never
+/// «بازدیدکننده».
+model ResidenceView {
+  residenceId Int       @map("residence_id")
+  residence   Residence @relation(fields: [residenceId], references: [id], onDelete: Cascade)
+  date        DateTime  @db.Date
+  count       Int       @default(0)
+
+  @@id([residenceId, date])
+  @@index([date])
+  @@map("residence_views")
+}
 
 model Favourite {
   id          Int       @id @default(autoincrement())

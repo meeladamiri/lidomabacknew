@@ -1,6 +1,7 @@
 import { Prisma, type ResidenceType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { AppError } from "@/lib/errors";
+import * as residenceStats from "@/modules/admin/residenceStats.service";
 import { generateReference } from "@/utils/reference";
 import { deleteStoredFile } from "@/middleware/upload";
 import { RESIDENCE_CARD_SELECT, toCard } from "@/modules/search/search.service";
@@ -215,36 +216,65 @@ export async function listHostResidences(hostId: number) {
 // Reservation-derived stats only — there's no reviews table yet (Phase 2),
 // so the rating fields the frontend also expects (location_rate, etc.) are
 // left for the API layer to zero out.
+/**
+ * آمار میزبان — the host's own statistics page.
+ *
+ * Delegates to the same service the panel's «آمار اقامتگاه» tab uses, so the
+ * two can never report different numbers for the same listing. The seven
+ * original keys are kept exactly as they were, because the existing page
+ * reads them; everything the old version could not answer is added alongside.
+ *
+ * Two of those originals were also wrong, and are corrected here:
+ *
+ *   • `rejected_reserves` counted CANCEL. The page labels it «رد شده», which
+ *     reads as "the host declined" when it almost always means the guest
+ *     cancelled. It now counts what it says, and cancellations get their own
+ *     number.
+ *   • `average_income` divided by however many distinct months a booking
+ *     *started* in, which counts a month twice as often as it should when
+ *     stays straddle boundaries.
+ */
 export async function getHostResidenceStats(hostId: number, residenceId?: number) {
-  const where: Prisma.ReservationWhereInput = {
-    hostId,
-    ...(residenceId ? { residenceId } : {}),
-  };
+  // Scoping to one listing must still prove the host owns it — otherwise any
+  // host could read any listing's earnings by passing an id.
+  if (residenceId) await assertOwnership(hostId, residenceId);
 
-  const [totalReserves, confirmedReserves, rejectedReserves, doneReservations] = await Promise.all([
-    prisma.reservation.count({ where }),
-    prisma.reservation.count({ where: { ...where, state: { in: ["SECOND_PAYMENT", "DONE"] } } }),
-    prisma.reservation.count({ where: { ...where, state: "CANCEL" } }),
-    prisma.reservation.findMany({
-      where: { ...where, state: "DONE" },
-      select: { daysCount: true, hostShare: true, totalAmount: true, startDate: true },
-    }),
-  ]);
-
-  const totalDays = doneReservations.reduce((sum, r) => sum + r.daysCount, 0);
-  const totalIncome = doneReservations.reduce((sum, r) => sum + (r.hostShare ?? r.totalAmount), 0);
-  const activeMonths = new Set(
-    doneReservations.map((r) => `${r.startDate.getFullYear()}-${r.startDate.getMonth()}`)
-  ).size;
+  const stats = await residenceStats.getStats(
+    residenceId ? { residenceId } : { hostId }
+  );
 
   return {
-    total_reserves: totalReserves,
-    confirmed_reserves: confirmedReserves,
-    rejected_reserves: rejectedReserves,
-    succeed_reserves: doneReservations.length,
-    total_days: totalDays,
-    total_income: totalIncome,
-    average_income: activeMonths > 0 ? Math.round(totalIncome / activeMonths) : 0,
+    // ---- the keys the existing page reads ----
+    total_reserves: stats.reservations.total,
+    confirmed_reserves: stats.reservations.confirmed,
+    rejected_reserves: stats.reservations.rejected,
+    succeed_reserves: stats.reservations.done,
+    total_days: stats.nights.total,
+    total_income: stats.income.total,
+    average_income: stats.income.monthly_average,
+
+    // ---- the ratings the page renders and the client was filling with 0 ----
+    reviews_count: stats.reviews.count,
+    average_rating: stats.reviews.average,
+    cleaning_rate: stats.reviews.cleaning,
+    location_rate: stats.reviews.location,
+    quality_rate: stats.reviews.quality,
+    integrity_rate: stats.reviews.integrity,
+    greeting_rate: stats.reviews.greeting,
+    delivery_rate: stats.reviews.delivery,
+    rating_spread: stats.reviews.spread,
+
+    // ---- everything the old version had no answer for ----
+    cancelled_reserves: stats.reservations.cancelled,
+    pending_reserves: stats.reservations.pending,
+    expired_reserves: stats.reservations.expired,
+    favourites: stats.favourites,
+    views: stats.views,
+    nights: stats.nights,
+    income: stats.income,
+    monthly: stats.monthly,
+    daily: stats.daily,
+    residences_count: stats.residences_count,
   };
 }
 

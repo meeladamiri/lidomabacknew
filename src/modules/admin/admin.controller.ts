@@ -235,6 +235,15 @@ export async function uploadResidenceImage(req: Request, res: Response) {
   return created(res, data);
 }
 
+export async function updateResidenceImage(req: Request, res: Response) {
+  const data = await service.adminUpdateImage(
+    Number(req.params.id),
+    Number(req.params.imageId),
+    req.body as { title?: string | null; alt?: string | null; isMain?: boolean }
+  );
+  return ok(res, data);
+}
+
 export async function deleteResidenceImage(req: Request, res: Response) {
   await service.adminDeleteImage(Number(req.params.id), Number(req.params.imageId));
   return ok(res, { success: true });

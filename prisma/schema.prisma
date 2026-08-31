@@ -613,10 +613,14 @@ model ResidenceImage {
   id          Int       @id @default(autoincrement())
   residenceId Int       @map("residence_id")
   residence   Residence @relation(fields: [residenceId], references: [id], onDelete: Cascade)
-  url         String
-  title       String?
-  sortOrder   Int       @default(0) @map("sort_order")
-  isMain      Boolean   @default(false) @map("is_main")
+  url   String
+  title String?
+  /// متن جایگزین — what a screen reader says and what Google indexes when the
+  /// file will not load. Separate from `title`: the title is the caption a
+  /// visitor reads, the alt is the description of the picture itself.
+  alt       String?
+  sortOrder Int     @default(0) @map("sort_order")
+  isMain    Boolean @default(false) @map("is_main")
   createdAt   DateTime  @default(now())
 
   @@index([residenceId])

@@ -546,6 +546,46 @@ export async function addImage(
   });
 }
 
+/**
+ * Edits one photo: its caption, its alt text, or which one is the main image.
+ *
+ * Promoting a photo demotes the current main in the same transaction. Two
+ * images flagged main is a listing whose cover picture depends on which row
+ * the query happens to return first.
+ */
+export async function updateImage(
+  hostId: number,
+  residenceId: number,
+  imageId: number,
+  data: { title?: string | null; alt?: string | null; isMain?: boolean }
+) {
+  await assertOwnership(hostId, residenceId);
+
+  const image = await prisma.residenceImage.findFirst({
+    where: { id: imageId, residenceId },
+    select: { id: true },
+  });
+  if (!image) throw AppError.notFound("تصویر پیدا نشد");
+
+  return prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    if (data.isMain === true) {
+      await tx.residenceImage.updateMany({
+        where: { residenceId, isMain: true },
+        data: { isMain: false },
+      });
+    }
+
+    return tx.residenceImage.update({
+      where: { id: imageId },
+      data: {
+        ...(data.title !== undefined ? { title: data.title } : {}),
+        ...(data.alt !== undefined ? { alt: data.alt } : {}),
+        ...(data.isMain !== undefined ? { isMain: data.isMain } : {}),
+      },
+    });
+  });
+}
+
 export async function deleteImage(hostId: number, residenceId: number, imageId: number) {
   await assertOwnership(hostId, residenceId);
   const image = await prisma.residenceImage.findFirst({ where: { id: imageId, residenceId } });

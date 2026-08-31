@@ -182,3 +182,19 @@ export const reorderImagesSchema = z.object({
   params: z.object({ id: z.coerce.number().int() }),
   body: z.object({ imageIds: z.array(z.number().int()) }),
 });
+
+/**
+ * Editing one photo. Every field optional so the caller can send just the one
+ * that changed — `isMain: true` promotes it and demotes whatever held the flag.
+ */
+export const updateImageSchema = z.object({
+  params: z.object({
+    id: z.coerce.number().int(),
+    imageId: z.coerce.number().int(),
+  }),
+  body: z.object({
+    title: z.string().max(200).nullable().optional(),
+    alt: z.string().max(300).nullable().optional(),
+    isMain: z.boolean().optional(),
+  }),
+});

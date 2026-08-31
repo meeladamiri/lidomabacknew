@@ -34,6 +34,7 @@ import {
   createRoomSchema,
   replaceRoomsSchema,
   reorderImagesSchema,
+  updateImageSchema,
   residenceIdParamSchema,
   updateAmenitiesSchema,
   updateCapacitySchema,
@@ -118,6 +119,11 @@ router.post(
   validate(residenceIdParamSchema),
   upload.single("image"),
   asyncHandler(controller.uploadResidenceImage)
+);
+router.patch(
+  "/residences/:id/images/:imageId",
+  validate(updateImageSchema),
+  asyncHandler(controller.updateResidenceImage)
 );
 router.delete("/residences/:id/images/:imageId", asyncHandler(controller.deleteResidenceImage));
 router.post(

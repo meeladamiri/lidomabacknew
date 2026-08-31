@@ -867,6 +867,14 @@ export async function adminAddImage(id: number, url: string, title?: string, isM
   return residencesService.addImage(await resolveHostIdForResidence(id), id, url, title, isMain);
 }
 
+export async function adminUpdateImage(
+  id: number,
+  imageId: number,
+  data: { title?: string | null; alt?: string | null; isMain?: boolean }
+) {
+  return residencesService.updateImage(await resolveHostIdForResidence(id), id, imageId, data);
+}
+
 export async function adminDeleteImage(id: number, imageId: number) {
   return residencesService.deleteImage(await resolveHostIdForResidence(id), id, imageId);
 }

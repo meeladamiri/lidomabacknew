@@ -5,6 +5,11 @@ import { validate } from "@/middleware/validate";
 import { ok } from "@/utils/response";
 import { rankInCity } from "./residenceRank.service";
 import { changeHost } from "./residenceHost.service";
+import {
+  getClassification,
+  setClassification,
+  CLASSIFICATION_KEYS,
+} from "./residenceClassification.service";
 
 /** Listing-level actions the detail page needs. Mounted under the admin router. */
 const router = Router();
@@ -55,6 +60,41 @@ router.patch(
         dryRun: body.dryRun,
         actorId: req.user!.sub,
       })
+    );
+  })
+);
+
+/**
+ * «نوع اقامتگاه» و «منطقه اقامتگاه» — the two taxonomies the SEO tag pages
+ * are built from. Read gives the options actually in use plus what this
+ * listing answers; write touches only the one amenity.
+ */
+router.get(
+  "/residences/:id/classification",
+  validate(z.object({ params: idParam })),
+  asyncHandler(async (req, res) => {
+    const { id } = req.params as unknown as { id: number };
+    return ok(res, await getClassification(id));
+  })
+);
+
+router.patch(
+  "/residences/:id/classification",
+  validate(
+    z.object({
+      params: idParam,
+      body: z.object({
+        key: z.enum(CLASSIFICATION_KEYS),
+        values: z.array(z.string().max(80)).max(10),
+      }),
+    })
+  ),
+  asyncHandler(async (req, res) => {
+    const { id } = req.params as unknown as { id: number };
+    const body = req.body as { key: (typeof CLASSIFICATION_KEYS)[number]; values: string[] };
+    return ok(
+      res,
+      await setClassification({ residenceId: id, ...body, actorId: req.user!.sub })
     );
   })
 );

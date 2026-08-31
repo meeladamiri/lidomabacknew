@@ -6,6 +6,8 @@ export const listQuerySchema = z.object({
     pageSize: z.coerce.number().int().min(1).max(100).optional(),
     q: z.string().optional(),
     state: z.string().optional(),
+    // Narrows the list to one listing — the residence page's bookings tab.
+    residenceId: z.coerce.number().int().positive().optional(),
     // JSON-encoded FilterCondition[] — parsed/whitelisted in admin.service.ts,
     // this schema only checks it's syntactically a string here.
     filters: z.string().optional(),

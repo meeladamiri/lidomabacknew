@@ -916,6 +916,8 @@ export async function listReservations(params: {
   pageSize?: number;
   state?: string;
   q?: string;
+  /** One listing's bookings — the residence page's «رزروها» tab. */
+  residenceId?: number;
 }) {
   const { page, pageSize, skip, take } = parsePagination(params);
 
@@ -925,6 +927,7 @@ export async function listReservations(params: {
   const q = params.q?.trim();
 
   const where: Prisma.ReservationWhereInput = {
+    ...(params.residenceId ? { residenceId: params.residenceId } : {}),
     ...(params.state ? { state: params.state as ReservationState } : {}),
     ...(q
       ? {

@@ -55,7 +55,27 @@ export const updateAmenitiesSchema = z.object({
     amenities: z.array(
       z.object({
         amenityId: z.number().int(),
-        extraFeatures: z.record(z.union([z.string(), z.number(), z.boolean()])).optional(),
+        /**
+         * The stored shape is `{ value, extra }` — `value` a string on 150,073
+         * rows, `extra` a nested object of sub-answers on 9,969.
+         *
+         * This was a flat `record(string|number|boolean)`, which rejected
+         * `extra` outright: saving any amenity carrying sub-answers — a pool,
+         * a parking space, a bathroom — failed the whole request with
+         * «ورودی نامعتبر است», and one such amenity blocked the save for every
+         * other one in the same list.
+         *
+         * `passthrough` because the migrated JSON is not ours to prune: an
+         * unknown key from Odoo should survive a round trip, not be silently
+         * dropped by a validator.
+         */
+        extraFeatures: z
+          .object({
+            value: z.union([z.string(), z.number(), z.boolean()]).optional(),
+            extra: z.record(z.union([z.string(), z.number(), z.boolean()])).optional(),
+          })
+          .passthrough()
+          .optional(),
       })
     ),
     other: z.string().optional(),

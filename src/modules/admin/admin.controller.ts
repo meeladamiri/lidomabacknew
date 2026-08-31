@@ -150,7 +150,13 @@ export async function residenceTabCounts(_req: Request, res: Response) {
 }
 
 export async function bulkResidenceState(req: Request, res: Response) {
-  return ok(res, await service.bulkUpdateResidenceState(req.body.ids, req.body.state));
+  return ok(
+    res,
+    await service.bulkUpdateResidenceState(req.body.ids, req.body.state, {
+      note: req.body.note,
+      actorId: req.user?.sub ?? null,
+    })
+  );
 }
 
 export async function bulkResidenceType(req: Request, res: Response) {
@@ -187,10 +193,10 @@ export async function setResidenceExtraCities(req: Request, res: Response) {
 }
 
 export async function setResidenceState(req: Request, res: Response) {
-  const data = await service.setResidenceState(
-    Number(req.params.id),
-    req.body.state
-  );
+  const data = await service.setResidenceState(Number(req.params.id), req.body.state, {
+    note: req.body.note,
+    actorId: req.user?.sub ?? null,
+  });
 
   return ok(res, data);
 }

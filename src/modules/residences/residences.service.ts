@@ -65,7 +65,13 @@ export async function getResidenceDetail(rawId: number) {
   // residences (see lib/publicId.ts)
   const id = await resolvePublicResidenceId(rawId);
   const residence = await prisma.residence.findFirst({
-    where: { id, state: "PUBLISHED", published: true },
+    // DEACTIVATED is allowed through on purpose. The page keeps its URL, its
+    // photos and its reviews; only the booking box changes. A listing that is
+    // unbookable this month is not a reason for an address people have
+    // bookmarked — and that Google has indexed for years — to start 404ing.
+    // Search, sitemap and "اقامتگاه‌های مشابه" still exclude it: those answer
+    // "what can I book", and this cannot be booked.
+    where: { id, state: { in: ["PUBLISHED", "DEACTIVATED"] } },
     include: {
       location: { include: { parent: true } },
       images: { orderBy: { sortOrder: "asc" } },
@@ -107,8 +113,26 @@ export async function getResidenceDetail(rawId: number) {
 
   const tags = await buildRelatedTags(residence.amenities, residence.location);
 
+  // The ops note is stripped here rather than left out of a `select`, because
+  // this query uses `include` — every column of the row ships by default, so a
+  // new one is public the moment it is added unless something removes it. Which
+  // is exactly what happened to `deactivationNote` on its first test: written
+  // for the ops team ("میزبان پاسخگو نیست", "اختلاف مالی"), served to guests.
+  const { deactivationNote, ...publicResidence } = residence;
+
   return {
-    residence,
+    residence: publicResidence,
+    // What the booking box should do. The page renders the same either way, so
+    // this is the single flag the frontend branches on rather than each panel
+    // re-deriving it from `state`.
+    bookable: residence.state === "PUBLISHED",
+    unavailable:
+      residence.state === "PUBLISHED"
+        ? null
+        : {
+            // The date only. The panel says the fact, not the reason.
+            since: residence.deactivatedAt,
+          },
     // legacy-URL contract for links + the displayed "کد آگهی"
     publicId: publicResidenceId(residence),
     similar: similar.map((s) => ({ ...s, id: publicResidenceId(s), roomsCount: s.rooms.length })),

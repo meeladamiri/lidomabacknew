@@ -18,6 +18,7 @@ import * as notify from "@/modules/notifications/events";
 import * as walletService from "@/modules/wallet/wallet.service";
 import * as reservationSettings from "@/modules/settings/reservationSettings.service";
 import { hostRulesText, hostRuleNotes } from "@/modules/residences/hostRules";
+import * as activity from "@/modules/activity/activity.service";
 
 export async function getDashboardStats() {
   const [
@@ -581,12 +582,29 @@ export async function residenceTabCounts() {
 
 // ---------- Bulk actions (list-view multi-select) ----------
 
-export async function bulkUpdateResidenceState(ids: number[], state: ResidenceState) {
-  const result = await prisma.residence.updateMany({
-    where: { id: { in: ids } },
-    data: { state, ...(state === "PUBLISHED" ? { published: true } : { published: false }) },
-  });
-  return { updated: result.count };
+/**
+ * The same change over a selection.
+ *
+ * Deliberately not an `updateMany`: each listing needs its own log line and
+ * its own notification, and a bulk write produces neither. Selections here are
+ * a page of rows, not thousands.
+ */
+export async function bulkUpdateResidenceState(
+  ids: number[],
+  state: ResidenceState,
+  options: { note: string; actorId?: number | null }
+) {
+  let updated = 0;
+  for (const id of ids) {
+    try {
+      await setResidenceState(id, state, options);
+      updated += 1;
+    } catch (error) {
+      // One missing id should not abandon the rest of the selection.
+      console.warn(`[admin] residence ${id} state not changed:`, error instanceof Error ? error.message : error);
+    }
+  }
+  return { updated };
 }
 
 /** Sets "نوع ملک" on the selection (the row menu's type entries). */
@@ -773,10 +791,55 @@ export async function setResidenceExtraCities(id: number, cityIds: number[]) {
   });
 }
 
-export async function setResidenceState(id: number, state: ResidenceState) {
+const RESIDENCE_STATE_LABEL: Record<ResidenceState, string> = {
+  DRAFT: "پیش‌نویس",
+  PENDING: "در انتظار بررسی",
+  PUBLISHED: "منتشرشده",
+  REJECTED: "رد شده",
+  DEACTIVATED: "غیرفعال",
+  DELETED: "حذف‌شده",
+};
+
+/**
+ * Moves a residence between states, with the reason on the record.
+ *
+ * The note is required by the schema, not defaulted here. Six months later the
+ * only question anyone asks about a deactivated listing is *why*, and a state
+ * change that did not have to answer it never does.
+ *
+ * `deactivationNote` is the current reason and is cleared on the way back out;
+ * the activity log keeps every one of them, including the reason a listing was
+ * deactivated the first time.
+ */
+export async function setResidenceState(
+  id: number,
+  state: ResidenceState,
+  options: { note: string; actorId?: number | null }
+) {
+  const before = await prisma.residence.findUniqueOrThrow({
+    where: { id },
+    select: { state: true },
+  });
+
+  const deactivating = state === "DEACTIVATED";
+
   const updated = await prisma.residence.update({
     where: { id },
-    data: { state, published: state === "PUBLISHED" },
+    data: {
+      state,
+      published: state === "PUBLISHED",
+      deactivatedAt: deactivating ? new Date() : null,
+      deactivationNote: deactivating ? options.note : null,
+    },
+  });
+
+  activity.log({
+    kind: "STATE_CHANGE",
+    residenceId: id,
+    summary: `وضعیت اقامتگاه از «${RESIDENCE_STATE_LABEL[before.state]}» به «${RESIDENCE_STATE_LABEL[state]}» تغییر کرد`,
+    details: { from: before.state, to: state, note: options.note },
+    actorId: options.actorId ?? null,
+    source: "ADMIN",
   });
 
   // The host asked for a decision and is waiting on it. Only the two states

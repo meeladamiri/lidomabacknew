@@ -101,6 +101,10 @@ export const bulkStateSchema = z.object({
   body: z.object({
     ids: z.array(z.coerce.number().int()).min(1).max(500),
     state: z.enum(["DRAFT", "PENDING", "PUBLISHED", "REJECTED", "DEACTIVATED", "DELETED"]),
+    // Required, not optional-with-a-default. The reason a listing went dark is
+    // the only thing anyone asks about it later, and a field that may be left
+    // empty is left empty.
+    note: z.string().trim().min(1, "ثبت توضیحات برای تغییر وضعیت الزامی است").max(1000),
   }),
 });
 
@@ -150,6 +154,10 @@ export const residenceStateSchema = z.object({
   params: z.object({ id: z.coerce.number().int() }),
   body: z.object({
     state: z.enum(["DRAFT", "PENDING", "PUBLISHED", "REJECTED", "DEACTIVATED", "DELETED"]),
+    // Required, not optional-with-a-default. The reason a listing went dark is
+    // the only thing anyone asks about it later, and a field that may be left
+    // empty is left empty.
+    note: z.string().trim().min(1, "ثبت توضیحات برای تغییر وضعیت الزامی است").max(1000),
   }),
 });
 

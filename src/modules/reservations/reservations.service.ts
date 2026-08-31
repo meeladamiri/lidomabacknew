@@ -103,11 +103,11 @@ export async function createReservation(
       // legacy-URL contract: the page carries the Odoo id for migrated
       // residences (see lib/publicId.ts)
       id: await resolvePublicResidenceId(data.residenceId),
-      state: "PUBLISHED",
-      published: true,
     },
     select: {
       id: true,
+      state: true,
+      published: true,
       hostId: true,
       weekPrice: true,
       weekendPrice: true,
@@ -120,6 +120,18 @@ export async function createReservation(
   });
 
   if (!residence) {
+    throw AppError.notFound("اقامتگاه یافت نشد");
+  }
+
+  // A deactivated listing still has a page, so a guest can still reach this
+  // endpoint from it — with a stale tab, or by posting straight to the API.
+  // The gate belongs here, and it needs to say what actually happened rather
+  // than claim the residence does not exist.
+  if (residence.state === "DEACTIVATED") {
+    throw AppError.badRequest("این اقامتگاه در حال حاضر پذیرای مهمان نیست و امکان رزرو ندارد");
+  }
+
+  if (residence.state !== "PUBLISHED" || !residence.published) {
     throw AppError.notFound("اقامتگاه یافت نشد");
   }
 

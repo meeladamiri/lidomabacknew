@@ -477,6 +477,12 @@ model Residence {
   completionPercent Int?           @map("completion_percent")
   published         Boolean        @default(false)
 
+  // Set together with `state = DEACTIVATED`. The public page still renders in
+  // full — only the booking box is replaced — so it needs to say *why*, and
+  // the panel needs it without a second query. Cleared on reactivation.
+  deactivatedAt    DateTime? @map("deactivated_at")
+  deactivationNote String?   @map("deactivation_note")
+
   name        String
   name2       String?
   description String?
@@ -2145,6 +2151,7 @@ model ActivityLog {
   // The timeline reads by booking, newest first. The other three cover the
   // filters the panel offers: by person, by kind over a date range, by admin.
   @@index([reservationId, id])
+  @@index([residenceId, id])
   @@index([userId, id])
   @@index([kind, createdAt])
   @@index([actorId, createdAt])

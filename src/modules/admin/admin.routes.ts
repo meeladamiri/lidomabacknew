@@ -58,6 +58,7 @@ import reservationSettingsRouter from "./reservationSettings.routes";
 import activityRouter from "./activity.routes";
 import reservationActionsRouter from "./reservationActions.routes";
 import reservationEditRouter from "./reservationEdit.routes";
+import residenceAdminRouter from "./residenceAdmin.routes";
 import adminCalendarRouter from "./calendar.routes";
 
 const router = Router();
@@ -195,6 +196,7 @@ router.use("/activity", activityRouter);
 router.use("/reservations", reservationActionsRouter);
 router.use(adminCalendarRouter);
 router.use(reservationEditRouter);
+router.use(residenceAdminRouter);
 
 router.use("/amenities", buildCatalogRouter(service.amenities, upsertAmenitySchema));
 router.use("/rules", buildCatalogRouter(service.rules, upsertRuleSchema));

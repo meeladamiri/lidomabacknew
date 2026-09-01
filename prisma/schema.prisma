@@ -187,7 +187,8 @@ model Location {
   // "شهرهای زیرمجموعه" — deliberately separate from the breadcrumb tree. A
   // search for this location also returns listings of every included one
   // (شمال -> مازندران/گیلان/گلستان). Replaces the hardcoded REGION_ALIASES.
-  attractions Attraction[]
+  attractions      Attraction[]
+  attractionCities AttractionCity[]
 
   includes   LocationInclude[] @relation("IncludeParent")
   includedIn LocationInclude[] @relation("IncludeChild")
@@ -614,6 +615,9 @@ model Attraction {
 
   isActive Boolean @default(true) @map("is_active")
 
+  /// Cities this place is relevant to — see AttractionCity. `locationId`
+  /// above is only the most common of these, kept as a label.
+  cities    AttractionCity[]
   distances ResidenceDistance[]
 
   createdAt DateTime @default(now()) @map("created_at")
@@ -623,6 +627,29 @@ model Attraction {
   @@index([latitude, longitude])
   @@index([name])
   @@map("attractions")
+}
+
+/// Which cities an attraction is relevant to.
+///
+/// Odoo's x_city_id is the city of the *listing that referenced the place*,
+/// not where the place is: "ایستگاه راه آهن اصفهان" came attributed to 28
+/// cities, and کاخ گلستان to both تهران and ورامین. As a location that is
+/// wrong; as relevance it is the more useful fact, because "places listings
+/// in this city point their guests at" beats "places inside this city's
+/// boundary" for suggesting what to put on a listing.
+model AttractionCity {
+  attractionId Int        @map("attraction_id")
+  attraction   Attraction @relation(fields: [attractionId], references: [id], onDelete: Cascade)
+  locationId   Int        @map("location_id")
+  location     Location   @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  /// How many Odoo rows made this attribution — a place forty listings point
+  /// at outranks one that a single listing mentioned.
+  weight Int @default(1)
+
+  @@id([attractionId, locationId])
+  @@index([locationId, weight(sort: Desc)])
+  @@map("attraction_cities")
 }
 
 model ResidenceDistance {

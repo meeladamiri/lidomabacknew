@@ -283,14 +283,27 @@ export async function nearby(
   const byCity: NearbyAttraction[] = [];
 
   if (residence.locationId && byDistance.length < limit) {
+    // Through the relevance table, not `attraction.locationId`.
+    //
+    // That column is null on every imported place, deliberately: Odoo's city
+    // was the city of the *listing that referenced the place*, so storing it
+    // would label ایستگاه راه آهن اصفهان as being in خور و بیابانک. What the
+    // attributions do say — "listings in this city point their guests here" —
+    // is the better suggestion anyway, and it is ordered by how many did.
     const cityOnes = await prisma.attraction.findMany({
       where: {
         isActive: true,
-        locationId: residence.locationId,
+        cities: { some: { locationId: residence.locationId } },
         id: { notIn: [...foundIds] },
       },
-      include: { location: { select: { name: true } } },
-      orderBy: { name: "asc" },
+      include: {
+        location: { select: { name: true } },
+        cities: {
+          where: { locationId: residence.locationId },
+          select: { weight: true },
+        },
+      },
+      orderBy: { cities: { _count: "desc" } },
       take: limit - byDistance.length,
     });
 

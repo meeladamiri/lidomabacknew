@@ -1120,6 +1120,21 @@ model Announcement {
   audience AnnouncementAudience @default(ALL)
   style    AnnouncementStyle    @default(BANNER)
 
+  /// How many times one person sees it. Null = every time, 1 = once, n = n
+  /// times. Counted per browser — there is no per-account read state, and a
+  /// half-working one would be worse than a rule that says what it does.
+  maxViews Int? @map("max_views")
+
+  /// Look. Free text rather than a fixed set of themes: a notice about a
+  /// payment change should not have to look like one about Nowruz pricing.
+  backgroundColor String? @map("background_color")
+  textColor       String? @map("text_color")
+  titleBold       Boolean @default(true) @map("title_bold")
+  dashedBorder    Boolean @default(false) @map("dashed_border")
+  /// A wide banner is unreadable on a phone and a square one wastes a desktop.
+  /// Whichever is missing falls back to the other.
+  imageUrlMobile  String? @map("image_url_mobile")
+
   isActive Boolean   @default(true) @map("is_active")
   /// Both optional. No dates means "until switched off", which is most of
   /// them; the window is for the ones that should stop on their own.

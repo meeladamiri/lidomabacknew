@@ -43,6 +43,12 @@ export async function forUser(isHost: boolean) {
       linkUrl: true,
       linkLabel: true,
       style: true,
+      maxViews: true,
+      backgroundColor: true,
+      textColor: true,
+      titleBold: true,
+      dashedBorder: true,
+      imageUrlMobile: true,
     },
   });
 }
@@ -70,6 +76,12 @@ export async function list(params: { onlyActive?: boolean } = {}) {
 }
 
 export interface AnnouncementInput {
+  maxViews?: number | null;
+  backgroundColor?: string | null;
+  textColor?: string | null;
+  titleBold?: boolean;
+  dashedBorder?: boolean;
+  imageUrlMobile?: string | null;
   title: string;
   body?: string | null;
   imageUrl?: string | null;

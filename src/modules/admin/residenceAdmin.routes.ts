@@ -620,6 +620,13 @@ const ANNOUNCEMENT_BODY = z.object({
   startsAt: z.coerce.date().nullable().optional(),
   endsAt: z.coerce.date().nullable().optional(),
   sortOrder: z.coerce.number().int().min(0).optional(),
+  // Null = show every time; 1 = once; n = n times.
+  maxViews: z.coerce.number().int().min(1).max(50).nullable().optional(),
+  backgroundColor: z.string().trim().max(32).nullable().optional(),
+  textColor: z.string().trim().max(32).nullable().optional(),
+  titleBold: z.boolean().optional(),
+  dashedBorder: z.boolean().optional(),
+  imageUrlMobile: z.string().trim().max(1000).nullable().optional(),
 });
 
 router.get("/announcements", asyncHandler(async (_req, res) => ok(res, await announcements.list())));

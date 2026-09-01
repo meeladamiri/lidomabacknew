@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { publicResidenceId } from "@/lib/publicId";
+import { forUser as announcementsForUser } from "@/modules/admin/announcements.service";
 
 /**
  * پیشخوان — what a signed-in person sees first.
@@ -177,6 +178,8 @@ export async function getDashboard(userId: number) {
       }),
     ]);
 
+  const announcements = await announcementsForUser(user.isHost);
+
   return {
     partner: {
       id: user.id,
@@ -211,9 +214,13 @@ export async function getDashboard(userId: number) {
     })),
 
     pending_reviews: pendingReviews,
+    announcements,
     // No chat unread count exists yet; reported as zero rather than omitted, so
     // the page's badge logic has something defined to read.
     pending_messages: 0,
-    announcement: null,
+    // The page's existing dialog reads a single `announcement`; it gets the
+    // first modal-style one so it keeps working unchanged, while the banner
+    // list is rendered separately.
+    announcement: announcements.find((a) => a.style === "MODAL") ?? null,
   };
 }

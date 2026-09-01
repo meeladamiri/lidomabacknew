@@ -12,6 +12,7 @@ import {
 } from "./residenceClassification.service";
 import { getStats } from "./residenceStats.service";
 import * as attractions from "./attractions.service";
+import * as announcements from "./announcements.service";
 import * as reviews from "./reviews.service";
 import { sendReviewApprovedMessage } from "./reviewMessages";
 import { prisma } from "@/lib/prisma";
@@ -602,6 +603,50 @@ router.delete(
   asyncHandler(async (req, res) => {
     const { id } = req.params as unknown as { id: number };
     return ok(res, await attractions.removeDistance(id, req.user!.sub));
+  })
+);
+
+// ------------------------------------------------------- اطلاعیه‌ها
+
+const ANNOUNCEMENT_BODY = z.object({
+  title: z.string().trim().min(1).max(200),
+  body: z.string().trim().max(2000).nullable().optional(),
+  imageUrl: z.string().trim().max(1000).nullable().optional(),
+  linkUrl: z.string().trim().max(1000).nullable().optional(),
+  linkLabel: z.string().trim().max(80).nullable().optional(),
+  audience: z.enum(["ALL", "HOSTS", "GUESTS"]).optional(),
+  style: z.enum(["BANNER", "MODAL"]).optional(),
+  isActive: z.boolean().optional(),
+  startsAt: z.coerce.date().nullable().optional(),
+  endsAt: z.coerce.date().nullable().optional(),
+  sortOrder: z.coerce.number().int().min(0).optional(),
+});
+
+router.get("/announcements", asyncHandler(async (_req, res) => ok(res, await announcements.list())));
+
+router.post(
+  "/announcements",
+  validate(z.object({ body: ANNOUNCEMENT_BODY })),
+  asyncHandler(async (req, res) =>
+    ok(res, await announcements.create(req.body, req.user!.sub))
+  )
+);
+
+router.patch(
+  "/announcements/:id",
+  validate(z.object({ params: idParam, body: ANNOUNCEMENT_BODY.partial() })),
+  asyncHandler(async (req, res) => {
+    const { id } = req.params as unknown as { id: number };
+    return ok(res, await announcements.update(id, req.body, req.user!.sub));
+  })
+);
+
+router.delete(
+  "/announcements/:id",
+  validate(z.object({ params: idParam })),
+  asyncHandler(async (req, res) => {
+    const { id } = req.params as unknown as { id: number };
+    return ok(res, await announcements.remove(id, req.user!.sub));
   })
 );
 

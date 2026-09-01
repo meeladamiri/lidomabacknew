@@ -314,6 +314,7 @@ model UserYellowCard {
 }
 
 model User {
+  announcements Announcement[] @relation("AnnouncementAuthor")
   id                 Int                @id @default(autoincrement())
   phone              String             @unique
   passwordHash       String?            @map("password_hash")
@@ -1099,6 +1100,56 @@ model ResidenceView {
   @@id([residenceId, date])
   @@index([date])
   @@map("residence_views")
+}
+
+/// اطلاعیه — a notice the ops team puts on people's dashboards.
+///
+/// The dashboard has always read an `announcement` field and rendered it in a
+/// dialog. Nothing wrote one, so the feature was dead code on the page.
+///
+/// `audience` is a filter rather than a copy: one row shown to hosts, guests
+/// or both, instead of two rows that have to be kept in step.
+model Announcement {
+  id        Int     @id @default(autoincrement())
+  title     String
+  body      String?
+  imageUrl  String? @map("image_url")
+  linkUrl   String? @map("link_url")
+  linkLabel String? @map("link_label")
+
+  audience AnnouncementAudience @default(ALL)
+  style    AnnouncementStyle    @default(BANNER)
+
+  isActive Boolean   @default(true) @map("is_active")
+  /// Both optional. No dates means "until switched off", which is most of
+  /// them; the window is for the ones that should stop on their own.
+  startsAt DateTime? @map("starts_at")
+  endsAt   DateTime? @map("ends_at")
+
+  /// Lower shows first.
+  sortOrder Int @default(0) @map("sort_order")
+
+  createdById Int?  @map("created_by_id")
+  createdBy   User? @relation("AnnouncementAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([isActive, audience, sortOrder])
+  @@map("announcements")
+}
+
+enum AnnouncementAudience {
+  ALL
+  HOSTS
+  GUESTS
+}
+
+enum AnnouncementStyle {
+  /// Inline on the dashboard, dismissible.
+  BANNER
+  /// Opens over the page once. For the rare thing nobody should scroll past.
+  MODAL
 }
 
 model Favourite {

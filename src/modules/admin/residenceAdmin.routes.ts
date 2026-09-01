@@ -668,24 +668,32 @@ router.delete(
 router.get(
   "/sidebar-counts",
   asyncHandler(async (_req, res) => {
-    const [pendingResidences, pendingReviews, awaitingApproval, expiringSoon] = await Promise.all([
-      prisma.residence.count({ where: { state: "PENDING" } }),
-      prisma.review.count({
-        where: { OR: [{ commentStatus: "PENDING" }, { hostAnswerStatus: "PENDING" }] },
-      }),
-      prisma.reservation.count({ where: { state: "HOST_APPROVAL" } }),
-      prisma.reservation.count({
-        where: {
-          state: "SECOND_PAYMENT",
-          expiryDate: { not: null, lte: new Date(Date.now() + 24 * 60 * 60 * 1000) },
-        },
-      }),
-    ]);
+    const now = new Date();
+
+    const [pendingResidences, pendingReviews, liveReservations, openConversations] =
+      await Promise.all([
+        prisma.residence.count({ where: { state: "PENDING" } }),
+        prisma.review.count({
+          where: { OR: [{ commentStatus: "PENDING" }, { hostAnswerStatus: "PENDING" }] },
+        }),
+        // In play: awaiting approval, awaiting payment, or confirmed and not
+        // yet finished. All-time DONE is a number that never goes down.
+        prisma.reservation.count({
+          where: {
+            OR: [
+              { state: { in: ["HOST_APPROVAL", "SECOND_PAYMENT"] } },
+              { state: "DONE", endDate: { gte: now } },
+            ],
+          },
+        }),
+        prisma.conversation.count({ where: { status: "OPEN" } }),
+      ]);
 
     return ok(res, {
       residences: pendingResidences,
       comments: pendingReviews,
-      reservations: awaitingApproval + expiringSoon,
+      reservations: liveReservations,
+      conversations: openConversations,
     });
   })
 );

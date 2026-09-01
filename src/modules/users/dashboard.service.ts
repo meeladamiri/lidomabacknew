@@ -188,10 +188,21 @@ export async function getDashboard(userId: number) {
    * need their answer is a to-do list. Anything that does not shrink when the
    * work is done does not belong here.
    */
-  const [awaitingHost, unansweredReviews, unreadNotifications] = await Promise.all([
-    user.isHost
-      ? prisma.reservation.count({ where: { hostId: userId, state: "HOST_APPROVAL" } })
-      : Promise.resolve(0),
+  const [liveReservations, unansweredReviews, unreadNotifications, unreadChats] =
+    await Promise.all([
+    // Confirmed, awaiting payment, or awaiting approval — the bookings that
+    // are actually in play. DONE is bounded to stays that have not finished:
+    // all-time DONE is a number that never goes down, and a badge that never
+    // goes down is one the eye learns to skip.
+    prisma.reservation.count({
+      where: {
+        ...(user.isHost ? { hostId: userId } : { guestId: userId }),
+        OR: [
+          { state: { in: ["HOST_APPROVAL", "SECOND_PAYMENT"] } },
+          { state: "DONE", endDate: { gte: now } },
+        ],
+      },
+    }),
 
     // Published guest reviews on this host's listings with no reply yet.
     user.isHost
@@ -205,6 +216,15 @@ export async function getDashboard(userId: number) {
       : Promise.resolve(0),
 
     prisma.notification.count({ where: { userId, readAt: null } }),
+
+    // Kept as a running total on the participant row rather than counted over
+    // messages — see ConversationParticipant.unreadCount.
+    prisma.conversationParticipant
+      .aggregate({
+        where: { userId, leftAt: null },
+        _sum: { unreadCount: true },
+      })
+      .then((a) => a._sum.unreadCount ?? 0),
   ]);
 
   return {
@@ -243,15 +263,12 @@ export async function getDashboard(userId: number) {
     pending_reviews: pendingReviews,
 
     badges: {
-      // Host side — each is an action someone is waiting on.
-      reservations: awaitingHost,
+      reservations: liveReservations,
       comments: unansweredReviews,
       residences: newResidences.length,
-      // Both sides.
       notifications: unreadNotifications,
-      // Guest side.
+      chats: unreadChats,
       my_trips: guestCurrent.length,
-      chats: 0,
     },
     announcements,
     // No chat unread count exists yet; reported as zero rather than omitted, so

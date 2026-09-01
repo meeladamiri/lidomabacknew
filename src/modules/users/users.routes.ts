@@ -7,6 +7,7 @@ import { AppError } from "@/lib/errors";
 import { ok } from "@/utils/response";
 import { prisma } from "@/lib/prisma";
 import { upload, fileToUrl, deleteStoredFile } from "@/middleware/upload";
+import { getDashboard } from "./dashboard.service";
 
 const router = Router();
 router.use(requireAuth);
@@ -44,6 +45,16 @@ const ME_SELECT = {
   // page was broken.
   location: { include: { parent: true } },
 } as const;
+
+/**
+ * پیشخوان. POST because that is what the frontend has always sent — it was
+ * written against Odoo's JSON-RPC convention and there is no reason to make
+ * the two repos deploy in lockstep over a verb.
+ */
+router.post(
+  "/dashboard",
+  asyncHandler(async (req, res) => ok(res, await getDashboard(req.user!.sub)))
+);
 
 router.get(
   "/me",
@@ -116,6 +127,37 @@ router.post(
       select: ME_SELECT,
     });
     await deleteStoredFile(current.avatarUrl);
+    return ok(res, user);
+  })
+);
+
+/**
+ * کارت ملی.
+ *
+ * `nationalCardUrl` has been on the user model and in ME_SELECT the whole
+ * time with nothing able to write it — the dashboard told hosts to upload one
+ * and there was no endpoint to upload it to.
+ *
+ * Same shape as the avatar route, with one difference: the old file is deleted
+ * only after the new row is written, so a failed upload cannot leave a user
+ * with neither.
+ */
+router.post(
+  "/me/national-card",
+  upload.single("nationalCard"),
+  asyncHandler(async (req, res) => {
+    if (!req.file) throw AppError.badRequest("فایل تصویر ارسال نشده است");
+    const current = await prisma.user.findUniqueOrThrow({
+      where: { id: req.user!.sub },
+      select: { nationalCardUrl: true },
+    });
+    const url = fileToUrl(req.file);
+    const user = await prisma.user.update({
+      where: { id: req.user!.sub },
+      data: { nationalCardUrl: url },
+      select: ME_SELECT,
+    });
+    await deleteStoredFile(current.nationalCardUrl);
     return ok(res, user);
   })
 );

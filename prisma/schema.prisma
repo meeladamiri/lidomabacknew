@@ -187,6 +187,8 @@ model Location {
   // "شهرهای زیرمجموعه" — deliberately separate from the breadcrumb tree. A
   // search for this location also returns listings of every included one
   // (شمال -> مازندران/گیلان/گلستان). Replaces the hardcoded REGION_ALIASES.
+  attractions Attraction[]
+
   includes   LocationInclude[] @relation("IncludeParent")
   includedIn LocationInclude[] @relation("IncludeChild")
 
@@ -589,16 +591,60 @@ model Residence {
 
 // "فاصله تا جاذبه‌های گردشگری" — distance/ETA from a residence to a nearby
 // landmark (legacy Odoo x_residence_place_distance + x_attractions).
+/// جاذبه گردشگری — the catalogue behind "فاصله تا جاذبه‌های گردشگری".
+///
+/// Recovered from Odoo's x_attractions, which the first migration dropped in
+/// favour of the free-text label on each distance row. 18,448 places, 181
+/// cities matched to a Location, and coordinates on 720 of them.
+///
+/// Coordinates are nullable because that is the truth of the data, and it is
+/// what makes "nearby" a two-tier answer: real distance where both the listing
+/// and the place have coordinates, same-city everywhere else.
+model Attraction {
+  id      Int  @id @default(autoincrement())
+  /// Legacy x_attractions.id — re-running the import updates instead of
+  /// duplicating, and a row can be traced to where it came from.
+  odooId  Int? @unique @map("odoo_id")
+  name    String
+
+  latitude   Float?
+  longitude  Float?
+  locationId Int?      @map("location_id")
+  location   Location? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+
+  isActive Boolean @default(true) @map("is_active")
+
+  distances ResidenceDistance[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([locationId])
+  @@index([latitude, longitude])
+  @@index([name])
+  @@map("attractions")
+}
+
 model ResidenceDistance {
   id          Int       @id @default(autoincrement())
   residenceId Int       @map("residence_id")
   residence   Residence @relation(fields: [residenceId], references: [id], onDelete: Cascade)
+
+  /// Set when this row names a catalogue entry. Null on all 14,866 migrated
+  /// rows, which carry only the label below — matching 4,040 spellings back to
+  /// 18,448 places would be a guess, so it is left to whoever edits the row.
+  attractionId Int?        @map("attraction_id")
+  attraction   Attraction? @relation(fields: [attractionId], references: [id], onDelete: SetNull)
+
+  /// What is actually displayed. Kept even when `attractionId` is set, so
+  /// removing a place from the catalogue changes nothing a guest sees.
   placeName   String    @map("place_name")
   distance    String? // free text, e.g. "۷ کیلومتر"
   eta         String? // free text, e.g. "۱ ساعت و ۲۹ دقیقه"
   sortOrder   Int       @default(0) @map("sort_order")
 
   @@index([residenceId])
+  @@index([attractionId])
   @@map("residence_distances")
 }
 

@@ -76,6 +76,13 @@ export async function getResidenceDetail(rawId: number) {
     include: {
       location: { include: { parent: true } },
       images: { orderBy: { sortOrder: "asc" } },
+      // "فاصله تا جاذبه‌های گردشگری". 14,866 of these have existed on 1,212
+      // listings the whole time and the page has never shown one — the mapper
+      // hardcoded an empty array because the payload had no such field.
+      distances: {
+        orderBy: { sortOrder: "asc" },
+        select: { id: true, placeName: true, distance: true, eta: true },
+      },
       rooms: true,
       amenities: { include: { amenity: { include: { features: true } } } },
       rules: { include: { rule: true } },

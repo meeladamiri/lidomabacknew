@@ -11,6 +11,7 @@ import {
   CLASSIFICATION_KEYS,
 } from "./residenceClassification.service";
 import { getStats } from "./residenceStats.service";
+import * as attractions from "./attractions.service";
 import * as reviews from "./reviews.service";
 import { sendReviewApprovedMessage } from "./reviewMessages";
 import { prisma } from "@/lib/prisma";
@@ -441,5 +442,167 @@ function activityLogDocument(
     source: "ADMIN",
   });
 }
+
+// ------------------------------------------- جاذبه‌های گردشگری (کاتالوگ)
+
+const COORD = z.object({
+  latitude: z.coerce.number().min(-90).max(90).nullable().optional(),
+  longitude: z.coerce.number().min(-180).max(180).nullable().optional(),
+});
+
+router.get(
+  "/attractions",
+  validate(
+    z.object({
+      query: z.object({
+        page: z.coerce.number().int().positive().optional(),
+        pageSize: z.coerce.number().int().positive().max(50).optional(),
+        q: z.string().optional(),
+        locationId: z.coerce.number().int().positive().optional(),
+        coords: z.enum(["with", "without"]).optional(),
+        onlyActive: z.coerce.boolean().optional(),
+      }),
+    })
+  ),
+  asyncHandler(async (req, res) => ok(res, await attractions.list(req.query as never)))
+);
+
+router.get("/attractions/counts", asyncHandler(async (_req, res) => ok(res, await attractions.counts())));
+
+router.post(
+  "/attractions",
+  validate(
+    z.object({
+      body: z
+        .object({
+          name: z.string().trim().min(1).max(200),
+          locationId: z.coerce.number().int().positive().nullable().optional(),
+        })
+        .merge(COORD),
+    })
+  ),
+  asyncHandler(async (req, res) => ok(res, await attractions.create(req.body, req.user!.sub)))
+);
+
+router.patch(
+  "/attractions/:id",
+  validate(
+    z.object({
+      params: idParam,
+      body: z
+        .object({
+          name: z.string().trim().min(1).max(200).optional(),
+          locationId: z.coerce.number().int().positive().nullable().optional(),
+          isActive: z.boolean().optional(),
+        })
+        .merge(COORD),
+    })
+  ),
+  asyncHandler(async (req, res) => {
+    const { id } = req.params as unknown as { id: number };
+    return ok(res, await attractions.update(id, req.body, req.user!.sub));
+  })
+);
+
+router.delete(
+  "/attractions/:id",
+  validate(z.object({ params: idParam })),
+  asyncHandler(async (req, res) => {
+    const { id } = req.params as unknown as { id: number };
+    return ok(res, await attractions.remove(id, req.user!.sub));
+  })
+);
+
+// ------------------------------------- موقعیت مکانی و فاصله‌ها (اقامتگاه)
+
+/** What is near this listing, and how confidently — see the service. */
+router.get(
+  "/residences/:id/nearby-attractions",
+  validate(
+    z.object({
+      params: idParam,
+      query: z.object({
+        radiusKm: z.coerce.number().min(1).max(200).optional(),
+        limit: z.coerce.number().int().min(1).max(50).optional(),
+      }),
+    })
+  ),
+  asyncHandler(async (req, res) => {
+    const { id } = req.params as unknown as { id: number };
+    const { radiusKm, limit } = req.query as unknown as { radiusKm?: number; limit?: number };
+    return ok(res, await attractions.nearby(id, { radiusKm, limit }));
+  })
+);
+
+router.get(
+  "/residences/:id/distances",
+  validate(z.object({ params: idParam })),
+  asyncHandler(async (req, res) => {
+    const { id } = req.params as unknown as { id: number };
+    return ok(res, await attractions.listDistances(id));
+  })
+);
+
+router.post(
+  "/residences/:id/distances",
+  validate(
+    z.object({
+      params: idParam,
+      body: z.object({
+        attractionId: z.coerce.number().int().positive().nullable().optional(),
+        placeName: z.string().trim().min(1).max(200).optional(),
+        distance: z.string().trim().max(100).optional(),
+        eta: z.string().trim().max(100).optional(),
+      }),
+    })
+  ),
+  asyncHandler(async (req, res) => {
+    const { id } = req.params as unknown as { id: number };
+    return ok(res, await attractions.addDistance(id, req.body, req.user!.sub));
+  })
+);
+
+/** «افزودن خودکار» — attaches the suggestions that were ticked. */
+router.post(
+  "/residences/:id/distances/bulk",
+  validate(
+    z.object({
+      params: idParam,
+      body: z.object({ attractionIds: z.array(z.coerce.number().int().positive()).min(1).max(50) }),
+    })
+  ),
+  asyncHandler(async (req, res) => {
+    const { id } = req.params as unknown as { id: number };
+    return ok(res, await attractions.addNearbyBulk(id, req.body.attractionIds, req.user!.sub));
+  })
+);
+
+router.patch(
+  "/distances/:id",
+  validate(
+    z.object({
+      params: idParam,
+      body: z.object({
+        placeName: z.string().trim().min(1).max(200).optional(),
+        distance: z.string().trim().max(100).nullable().optional(),
+        eta: z.string().trim().max(100).nullable().optional(),
+        sortOrder: z.coerce.number().int().min(0).optional(),
+      }),
+    })
+  ),
+  asyncHandler(async (req, res) => {
+    const { id } = req.params as unknown as { id: number };
+    return ok(res, await attractions.updateDistance(id, req.body, req.user!.sub));
+  })
+);
+
+router.delete(
+  "/distances/:id",
+  validate(z.object({ params: idParam })),
+  asyncHandler(async (req, res) => {
+    const { id } = req.params as unknown as { id: number };
+    return ok(res, await attractions.removeDistance(id, req.user!.sub));
+  })
+);
 
 export default router;

@@ -12,6 +12,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { record } from "./notifications.service";
+import { publicResidenceId } from "@/lib/publicId";
 
 const fa = (n: number) => n.toLocaleString("fa-IR");
 
@@ -44,6 +45,19 @@ async function loadBooking(reservationId: number) {
   });
 }
 
+/**
+ * Where a notification about a booking should send each side.
+ *
+ * Every one of these pointed at /profile/my-trips and /profile/reserves with
+ * the reference in a query string. Neither route exists — the pages are
+ * /my-trips/<id> and /reservations/<id>, and neither reads a `reservation`
+ * query parameter — so every booking notification ever sent led to a 404.
+ *
+ * The id, not the reference: that is what both detail pages take.
+ */
+const guestLink = (reservationId: number) => `/my-trips/${reservationId}`;
+const hostLink = (reservationId: number) => `/reservations/${reservationId}`;
+
 function fire(label: string, run: () => Promise<unknown>): void {
   void run().catch((error) => {
     console.warn(`[notifications] ${label} failed:`, error);
@@ -63,8 +77,8 @@ export function onReservationCreated(reservationId: number): void {
     if (!booking) return;
 
     const stay = `${faDate(booking.startDate)} تا ${faDate(booking.endDate)}`;
-    const guestUrl = `/profile/my-trips?reservation=${booking.reference}`;
-    const hostUrl = `/profile/reserves?reservation=${booking.reference}`;
+    const guestUrl = guestLink(booking.id);
+    const hostUrl = hostLink(booking.id);
 
     await Promise.all([
       record({
@@ -105,8 +119,8 @@ export function onReservationStateChanged(reservationId: number, kind: StateKind
 
     const stay = `${faDate(booking.startDate)} تا ${faDate(booking.endDate)}`;
     const nightCount = nights(booking.startDate, booking.endDate);
-    const guestUrl = `/profile/my-trips?reservation=${booking.reference}`;
-    const hostUrl = `/profile/reserves?reservation=${booking.reference}`;
+    const guestUrl = guestLink(booking.id);
+    const hostUrl = hostLink(booking.id);
     const name = booking.residence.name;
 
     if (kind === "BOOKING_APPROVED") {
@@ -189,7 +203,8 @@ export function onResidenceReviewed(
       body: published
         ? `${residence.name} تأیید شد و اکنون در نتایج جستجو دیده می‌شود.`
         : `${residence.name} تأیید نشد.${reason ? ` دلیل: ${reason}` : " برای جزئیات با پشتیبانی در تماس باشید."}`,
-      linkUrl: `/profile/residences/${residence.id}`,
+      // /residences has no index page — the host list is /residences/list.
+        linkUrl: "/residences/list",
       entityType: "residence",
       entityId: residence.id,
     });
@@ -204,7 +219,7 @@ export function onReviewCreated(reviewId: number): void {
       select: {
         id: true,
         averageRating: true,
-        residence: { select: { id: true, name: true, hostId: true } },
+        residence: { select: { id: true, name: true, hostId: true, reference: true } },
       },
     });
     if (!review?.residence?.hostId) return;
@@ -216,7 +231,7 @@ export function onReviewCreated(reviewId: number): void {
       body: `یک مهمان برای ${review.residence.name} نظر ثبت کرد${
         review.averageRating ? ` و امتیاز ${fa(Math.round(review.averageRating * 10) / 10)} داد` : ""
       }.`,
-      linkUrl: `/rentals/${review.residence.id}`,
+      linkUrl: `/rentals/${publicResidenceId(review.residence)}`,
       entityType: "review",
       entityId: review.id,
     });
@@ -287,7 +302,7 @@ export function onReservationCancelled(
           kind: "BOOKING_CANCELLED",
           title: "رزرو لغو شد",
           body: `رزرو ${name} (${stay}) توسط ${who} لغو شد.${reason}${refund}`,
-          linkUrl: `/profile/my-trips?reservation=${booking.reference}`,
+          linkUrl: guestLink(booking.id),
           entityType: "reservation",
           entityId: booking.id,
         })
@@ -301,7 +316,7 @@ export function onReservationCancelled(
           kind: "BOOKING_CANCELLED",
           title: "رزرو لغو شد",
           body: `رزرو ${name} (${stay}) توسط ${who} لغو شد.${reason} تاریخ‌های این رزرو دوباره آزاد شدند.`,
-          linkUrl: `/profile/reserves?reservation=${booking.reference}`,
+          linkUrl: hostLink(booking.id),
           entityType: "reservation",
           entityId: booking.id,
         })

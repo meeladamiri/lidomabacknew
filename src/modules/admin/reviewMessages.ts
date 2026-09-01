@@ -3,6 +3,7 @@ import { sendSms } from "@/lib/sms";
 import { record } from "@/modules/notifications/notifications.service";
 import * as activity from "@/modules/activity/activity.service";
 import { AppError } from "@/lib/errors";
+import { publicResidenceId } from "@/lib/publicId";
 
 /**
  * «به مهمان بگو نظرت تأییده» / «به میزبان بگو نظرت تأییده».
@@ -72,7 +73,7 @@ export async function sendReviewApprovedMessage(
       commentStatus: true,
       hostAnswerStatus: true,
       guest: { select: { id: true, name: true, phone: true } },
-      residence: { select: { id: true, name: true, hostId: true } },
+      residence: { select: { id: true, name: true, hostId: true, reference: true } },
     },
   });
   if (!review) throw AppError.notFound("نظر یافت نشد");
@@ -105,7 +106,9 @@ export async function sendReviewApprovedMessage(
     kind: audience === "guest" ? "REVIEW_PUBLISHED" : "REVIEW_ANSWER_PUBLISHED",
     title: text.notificationTitle,
     body: text.notificationBody,
-    linkUrl: `/rentals/${review.residenceId}`,
+    // The public id, not the primary key — /rentals is addressed by the
+    // Odoo id on every migrated listing.
+    linkUrl: `/rentals/${publicResidenceId(review.residence)}`,
     entityType: "review",
     entityId: review.id,
   }).catch((error) => {

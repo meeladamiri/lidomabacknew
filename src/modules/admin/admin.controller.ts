@@ -179,9 +179,10 @@ export async function exportResidences(req: Request, res: Response) {
 }
 
 export async function getResidence(req: Request, res: Response) {
-  const data = await service.getResidence(Number(req.params.id));
-
-  return ok(res, data);
+  // The URL carries the کد اقامتگاه, which is a different number from the
+  // internal id on every migrated listing — see resolveAdminResidenceId.
+  const id = await service.resolveAdminResidenceId(Number(req.params.id));
+  return ok(res, await service.getResidence(id));
 }
 
 export async function setResidenceDistances(req: Request, res: Response) {

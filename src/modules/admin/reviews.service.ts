@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { AppError } from "@/lib/errors";
 import * as activity from "@/modules/activity/activity.service";
 import { parsePagination } from "@/utils/pagination";
+import { publicResidenceId } from "@/lib/publicId";
 import type { Prisma, ReviewModerationStatus } from "@prisma/client";
 import {
   deriveReviewStatus,
@@ -70,7 +71,18 @@ type ReviewRow = Prisma.ReviewGetPayload<{ select: typeof REVIEW_SELECT }>;
 /** Attaches the single badge the panel shows, derived from the two statuses. */
 function withStatus(review: ReviewRow) {
   const status = deriveReviewStatus(review);
-  return { ...review, status, statusLabel: REVIEW_STATUS_LABEL[status] };
+  return {
+    ...review,
+    status,
+    statusLabel: REVIEW_STATUS_LABEL[status],
+    residence: {
+      ...review.residence,
+      // The panel links to a listing by its کد اقامتگاه, never its internal id
+      // — the two collide on 1,640 listings. Derived here so there is one
+      // definition of the code rather than one per page that links to it.
+      publicId: publicResidenceId(review.residence),
+    },
+  };
 }
 
 /**

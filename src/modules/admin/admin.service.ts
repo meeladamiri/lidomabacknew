@@ -313,6 +313,10 @@ export async function getUser(id: number) {
 
   return {
     ...user,
+    // The panel links to a listing by its کد اقامتگاه, never its internal id —
+    // the two collide on 1,640 listings, so a link built from `id` opens a
+    // different residence than the one that was clicked.
+    residences: user.residences?.map((r) => ({ ...r, publicId: publicResidenceId(r) })),
     stats: {
       reservationsAsGuest: user._count.reservationsAsGuest,
       reservationsAsHost: user._count.reservationsAsHost,
@@ -718,6 +722,52 @@ export async function exportResidencesCsv(ids: number[]) {
   return "﻿" + [header.map(esc).join(","), ...lines].join("\r\n");
 }
 
+/**
+ * The panel's residence URL carries the **کد اقامتگاه**, not the internal id.
+ *
+ * Those are different numbers on every migrated listing, and they are not
+ * safely interchangeable: **1,640 Odoo codes are also some other residence's
+ * internal id**. `/admin/residences/4711` is a real example — as a code it is
+ * a hotel in Qazvin, as an internal id it is a villa in Sorkhrud. A route that
+ * accepted either would show the wrong listing, silently, on 1,640 of them.
+ *
+ * So the code is the only accepted address, and this resolves it. An internal
+ * id belonging to a migrated listing is not an address at all — but it *is*
+ * what every old panel bookmark contains, so instead of a bare 404 the error
+ * carries the code the caller should have used and the page redirects itself.
+ *
+ * Only this route resolves. Every other admin residence endpoint keeps taking
+ * the internal id, because the page passes them the id it got back from here —
+ * putting the same resolution on all of them would move the collision hazard
+ * inside the API, where the caller has no way to say which number it meant.
+ */
+export async function resolveAdminResidenceId(codeOrId: number): Promise<number> {
+  const byCode = await prisma.residence.findUnique({
+    where: { reference: `ODOO-${codeOrId}` },
+    select: { id: true },
+  });
+  if (byCode) return byCode.id;
+
+  const byId = await prisma.residence.findUnique({
+    where: { id: codeOrId },
+    select: { id: true, reference: true },
+  });
+
+  if (byId?.reference?.startsWith("ODOO-")) {
+    // The code the caller should have used travels with the error, so the page
+    // can send itself to the right URL instead of showing a dead end.
+    throw new AppError(
+      404,
+      "RESIDENCE_CANONICAL_CODE",
+      "این آدرس با شناسه‌ی داخلی است؛ آدرس درست با کد اقامتگاه است",
+      { canonicalId: publicResidenceId(byId) }
+    );
+  }
+
+  // Not migrated: code and internal id are the same number.
+  return codeOrId;
+}
+
 export async function getResidence(id: number) {
   const residence = await prisma.residence.findUniqueOrThrow({
     where: { id },
@@ -1075,7 +1125,17 @@ export async function getReservation(id: number) {
     partyProfile(reservation.hostId, { withHostRating: true }),
   ]);
 
-  return { ...reservation, guestProfile, hostProfile };
+  return {
+    ...reservation,
+    // Same reason as everywhere else: the panel addresses a listing by its
+    // کد اقامتگاه, and that is a different number from `residence.id`.
+    residence: reservation.residence && {
+      ...reservation.residence,
+      publicId: publicResidenceId(reservation.residence),
+    },
+    guestProfile,
+    hostProfile,
+  };
 }
 
 /** The extra columns the reservation page shows about a guest or a host. */

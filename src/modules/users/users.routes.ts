@@ -18,7 +18,7 @@ const ME_SELECT = {
   email: true,
   nationalCode: true,
   address: true,
-  cityId: true,
+  locationId: true,
   zip: true,
   fax: true,
   job: true,
@@ -37,7 +37,12 @@ const ME_SELECT = {
   createdAt: true,
   updatedAt: true,
   bankAccount: true,
-  city: { include: { province: true } },
+  // The model went from city/province to location/parent a while back. This
+  // select was never updated, so `GET /api/users/me` threw on every request —
+  // Prisma rejects an unknown field, and the object is `as const` passed to
+  // `select:`, which is why tsc never flagged it. Every logged-in profile
+  // page was broken.
+  location: { include: { parent: true } },
 } as const;
 
 router.get(
@@ -57,7 +62,11 @@ const updateProfileSchema = z.object({
     email: z.string().email().optional(),
     nationalCode: z.string().optional(),
     address: z.string().optional(),
-    cityId: z.number().int().optional(),
+    locationId: z.number().int().nullable().optional(),
+    // The frontend still sends `cityId` (api/Dashboard.ts), and the two repos
+    // deploy separately — rejecting it would break profile saves for everyone
+    // between the two deploys. Accepted and folded into locationId below.
+    cityId: z.number().int().nullable().optional(),
     zip: z.string().optional(),
     fax: z.string().optional(),
     job: z.string().optional(),
@@ -76,9 +85,15 @@ router.patch(
   "/me",
   validate(updateProfileSchema),
   asyncHandler(async (req, res) => {
+    // `data: req.body` goes straight to Prisma, so a `cityId` that the schema
+    // accepts would still throw here — the column is `locationId`. Folded
+    // rather than passed through.
+    const { cityId, ...body } = req.body as { cityId?: number } & Record<string, unknown>;
+    const data = cityId !== undefined ? { ...body, locationId: cityId } : body;
+
     const user = await prisma.user.update({
       where: { id: req.user!.sub },
-      data: req.body,
+      data,
       select: ME_SELECT,
     });
     return ok(res, user);

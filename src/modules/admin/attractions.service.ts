@@ -285,29 +285,29 @@ export async function nearby(
   if (residence.locationId && byDistance.length < limit) {
     // Through the relevance table, not `attraction.locationId`.
     //
-    // That column is null on every imported place, deliberately: Odoo's city
-    // was the city of the *listing that referenced the place*, so storing it
-    // would label ایستگاه راه آهن اصفهان as being in خور و بیابانک. What the
-    // attributions do say — "listings in this city point their guests here" —
-    // is the better suggestion anyway, and it is ordered by how many did.
-    const cityOnes = await prisma.attraction.findMany({
+    // Odoo's city was the city of the *listing that referenced the place*, so
+    // that column would label ایستگاه راه آهن اصفهان as being in خور و بیابانک.
+    // It survives only as the single most-common attribution, which is a label
+    // and not an address. What the attributions do say — "listings in this
+    // city point their guests here" — is the better suggestion anyway.
+    //
+    // The query starts from the link rows so it can order by the weight **for
+    // this city**. Ordering the attractions by `cities._count` instead sorts
+    // by how many cities a place is relevant to, which for Isfahan surfaced
+    // "پایانه مسافربری" (referenced twice) above "پل خواجو" (referenced 23
+    // times) — the opposite of what the number means.
+    const links = await prisma.attractionCity.findMany({
       where: {
-        isActive: true,
-        cities: { some: { locationId: residence.locationId } },
-        id: { notIn: [...foundIds] },
+        locationId: residence.locationId,
+        attractionId: { notIn: [...foundIds] },
+        attraction: { isActive: true },
       },
-      include: {
-        location: { select: { name: true } },
-        cities: {
-          where: { locationId: residence.locationId },
-          select: { weight: true },
-        },
-      },
-      orderBy: { cities: { _count: "desc" } },
+      orderBy: { weight: "desc" },
       take: limit - byDistance.length,
+      include: { attraction: { include: { location: { select: { name: true } } } } },
     });
 
-    for (const a of cityOnes) {
+    for (const a of links.map((l) => l.attraction)) {
       byCity.push({
         id: a.id,
         name: a.name,

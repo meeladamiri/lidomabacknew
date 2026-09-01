@@ -180,6 +180,33 @@ export async function getDashboard(userId: number) {
 
   const announcements = await announcementsForUser(user.isHost);
 
+  /**
+   * Numbers for the tile badges.
+   *
+   * Only counts that mean **somebody is waiting on you**. A badge showing how
+   * many listings a host owns is decoration; a badge showing how many bookings
+   * need their answer is a to-do list. Anything that does not shrink when the
+   * work is done does not belong here.
+   */
+  const [awaitingHost, unansweredReviews, unreadNotifications] = await Promise.all([
+    user.isHost
+      ? prisma.reservation.count({ where: { hostId: userId, state: "HOST_APPROVAL" } })
+      : Promise.resolve(0),
+
+    // Published guest reviews on this host's listings with no reply yet.
+    user.isHost
+      ? prisma.review.count({
+          where: {
+            residence: { hostId: userId },
+            commentStatus: "PUBLISHED",
+            hostAnswer: null,
+          },
+        })
+      : Promise.resolve(0),
+
+    prisma.notification.count({ where: { userId, readAt: null } }),
+  ]);
+
   return {
     partner: {
       id: user.id,
@@ -214,6 +241,18 @@ export async function getDashboard(userId: number) {
     })),
 
     pending_reviews: pendingReviews,
+
+    badges: {
+      // Host side — each is an action someone is waiting on.
+      reservations: awaitingHost,
+      comments: unansweredReviews,
+      residences: newResidences.length,
+      // Both sides.
+      notifications: unreadNotifications,
+      // Guest side.
+      my_trips: guestCurrent.length,
+      chats: 0,
+    },
     announcements,
     // No chat unread count exists yet; reported as zero rather than omitted, so
     // the page's badge logic has something defined to read.

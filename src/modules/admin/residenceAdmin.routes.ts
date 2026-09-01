@@ -657,4 +657,37 @@ router.delete(
   })
 );
 
+/**
+ * The numbers beside the sidebar links.
+ *
+ * Only queues — things sitting there waiting for somebody in this panel to
+ * act. Totals are not badges: "9,574 residences" never goes down, so a number
+ * next to it teaches the eye to skip numbers, which costs you the one badge
+ * that did mean something.
+ */
+router.get(
+  "/sidebar-counts",
+  asyncHandler(async (_req, res) => {
+    const [pendingResidences, pendingReviews, awaitingApproval, expiringSoon] = await Promise.all([
+      prisma.residence.count({ where: { state: "PENDING" } }),
+      prisma.review.count({
+        where: { OR: [{ commentStatus: "PENDING" }, { hostAnswerStatus: "PENDING" }] },
+      }),
+      prisma.reservation.count({ where: { state: "HOST_APPROVAL" } }),
+      prisma.reservation.count({
+        where: {
+          state: "SECOND_PAYMENT",
+          expiryDate: { not: null, lte: new Date(Date.now() + 24 * 60 * 60 * 1000) },
+        },
+      }),
+    ]);
+
+    return ok(res, {
+      residences: pendingResidences,
+      comments: pendingReviews,
+      reservations: awaitingApproval + expiringSoon,
+    });
+  })
+);
+
 export default router;

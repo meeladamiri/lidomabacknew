@@ -409,6 +409,107 @@ export async function editComment(reviewId: number, comment: string, actorId: nu
   return getOne(reviewId);
 }
 
+/** The six things a guest scores, and the labels the log writes them under. */
+export const SCORE_FIELDS = {
+  cleaning: "نظافت اقامتگاه",
+  location: "موقعیت مکانی",
+  quality: "کیفیت نسبت به نرخ",
+  integrity: "صحت اطلاعات",
+  greeting: "برخورد میزبان",
+  delivery: "نحوه تحویل",
+} as const;
+
+export type ScoreField = keyof typeof SCORE_FIELDS;
+
+/**
+ * Edits the guest's scores.
+ *
+ * Support corrects these when a guest plainly mis-tapped — five stars in the
+ * text and one on the slider — or when a score was left against the wrong
+ * listing. Rare, but the only alternative on offer was rejecting the review.
+ *
+ * **Two derived values have to move with it**, and both are the kind that
+ * fails silently:
+ *
+ *   1. `Review.averageRating` is stored, not computed on read. It is the mean
+ *      of the six, and the definition is copied from where a guest's review is
+ *      created — if these two ever disagree, an edited review sorts and filters
+ *      differently from an untouched one.
+ *   2. `Residence.averageRating` and `reviewsCount` are denormalised from
+ *      every published review, so changing one score changes the listing's
+ *      score on every search page it appears on.
+ *
+ * The log records each score that moved, by name, with both values.
+ */
+export async function editScores(
+  reviewId: number,
+  scores: Partial<Record<ScoreField, number>>,
+  actorId: number
+) {
+  const review = await prisma.review.findUnique({
+    where: { id: reviewId },
+    select: {
+      id: true,
+      residenceId: true,
+      cleaning: true,
+      location: true,
+      quality: true,
+      integrity: true,
+      greeting: true,
+      delivery: true,
+      averageRating: true,
+    },
+  });
+  if (!review) throw AppError.notFound("نظر یافت نشد");
+
+  const next = {
+    cleaning: scores.cleaning ?? review.cleaning,
+    location: scores.location ?? review.location,
+    quality: scores.quality ?? review.quality,
+    integrity: scores.integrity ?? review.integrity,
+    greeting: scores.greeting ?? review.greeting,
+    delivery: scores.delivery ?? review.delivery,
+  };
+
+  const changed = (Object.keys(SCORE_FIELDS) as ScoreField[])
+    .filter((k) => next[k] !== review[k])
+    .map((k) => ({ field: k, label: SCORE_FIELDS[k], before: review[k], after: next[k] }));
+
+  if (changed.length === 0) return getOne(reviewId);
+
+  // The same mean as `submitReview` — six values, unweighted. Copied rather
+  // than imported because that one runs inside the booking flow; if either
+  // definition changes, this comment is the reason to change both.
+  const values = Object.values(next);
+  const averageRating = values.reduce((a, b) => a + b, 0) / values.length;
+
+  await prisma.review.update({
+    where: { id: reviewId },
+    data: { ...next, averageRating },
+  });
+
+  const rating = await recomputeVisibleRating(review.residenceId);
+
+  activity.log({
+    kind: "FIELD_CHANGE",
+    residenceId: review.residenceId,
+    summary:
+      "امتیازهای نظر توسط کارشناس ویرایش شد: " +
+      changed.map((c) => `${c.label} ${c.before}→${c.after}`).join(" · "),
+    details: {
+      reviewId,
+      changed,
+      averageBefore: review.averageRating,
+      averageAfter: averageRating,
+      residenceRating: rating,
+    },
+    actorId,
+    source: "ADMIN",
+  });
+
+  return getOne(reviewId);
+}
+
 /**
  * Writes or edits the host's public reply, from the panel.
  *

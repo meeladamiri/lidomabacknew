@@ -247,6 +247,39 @@ router.put(
   })
 );
 
+/**
+ * The six scores. Every field optional — the panel sends only what moved.
+ *
+ * Integers 1..5, matching what the guest's own form can produce: a review the
+ * panel edited must stay a review a guest could have written.
+ */
+const SCORE = z.coerce.number().int().min(1).max(5).optional();
+
+router.put(
+  "/reviews/:reviewId/scores",
+  validate(
+    z.object({
+      params: reviewIdParam,
+      body: z
+        .object({
+          cleaning: SCORE,
+          location: SCORE,
+          quality: SCORE,
+          integrity: SCORE,
+          greeting: SCORE,
+          delivery: SCORE,
+        })
+        .refine((b) => Object.values(b).some((v) => v !== undefined), {
+          message: "هیچ امتیازی برای تغییر فرستاده نشده",
+        }),
+    })
+  ),
+  asyncHandler(async (req, res) => {
+    const { reviewId } = req.params as unknown as { reviewId: number };
+    return ok(res, await reviews.editScores(reviewId, req.body, req.user!.sub));
+  })
+);
+
 router.put(
   "/reviews/:reviewId/answer",
   validate(

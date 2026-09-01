@@ -629,7 +629,14 @@ export async function replyToReview(hostId: number, reviewId: number, hostAnswer
   if (!review) {
     throw AppError.notFound("نظر یافت نشد");
   }
-  return prisma.review.update({ where: { id: reviewId }, data: { hostAnswer } });
+  // A host's reply is not published on submission — it goes into the panel's
+  // queue, same as the guest's comment did. Without this the reply appears on
+  // the site immediately and the review page's «در انتظار تایید نظر میزبان»
+  // state could never happen.
+  return prisma.review.update({
+    where: { id: reviewId },
+    data: { hostAnswer, hostAnswerStatus: "PENDING", hostAnsweredAt: new Date() },
+  });
 }
 
 /**

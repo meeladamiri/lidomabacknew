@@ -132,8 +132,8 @@ export async function getStats(scope: StatsScope) {
         // where they are read — a review taken down still dragging the
         // average is the failure this feature would otherwise ship with.
         where: scope.residenceId
-          ? { residenceId: scope.residenceId, hiddenAt: null }
-          : { residence: { hostId: scope.hostId! }, hiddenAt: null },
+          ? { residenceId: scope.residenceId, commentStatus: "PUBLISHED" }
+          : { residence: { hostId: scope.hostId! }, commentStatus: "PUBLISHED" },
         _count: true,
         _avg: {
           averageRating: true,
@@ -155,8 +155,8 @@ export async function getStats(scope: StatsScope) {
         // where they are read — a review taken down still dragging the
         // average is the failure this feature would otherwise ship with.
         where: scope.residenceId
-          ? { residenceId: scope.residenceId, hiddenAt: null }
-          : { residence: { hostId: scope.hostId! }, hiddenAt: null },
+          ? { residenceId: scope.residenceId, commentStatus: "PUBLISHED" }
+          : { residence: { hostId: scope.hostId! }, commentStatus: "PUBLISHED" },
         _count: true,
       }),
 

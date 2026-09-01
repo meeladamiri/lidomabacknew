@@ -81,12 +81,30 @@ export async function getResidenceDetail(rawId: number) {
       rules: { include: { rule: true } },
       host: { select: { id: true, name: true, avatarUrl: true, createdAt: true } },
       reviews: {
-        // A hidden review is hidden here first — this is the page it was
-        // taken down from.
-        where: { hiddenAt: null },
+        // Only what has been approved. This is the page a rejected review was
+        // taken down from, and the page an unapproved one has not reached yet.
+        where: { commentStatus: "PUBLISHED" },
         orderBy: { createdAt: "desc" },
         take: 20,
-        include: { guest: { select: { name: true } } },
+        // An explicit select, not an include. `include` ships every column,
+        // which here would mean the moderation note — written for the ops team
+        // — and a host reply that has not been approved yet. Both were in the
+        // public payload the moment those columns were added.
+        select: {
+          id: true,
+          cleaning: true,
+          location: true,
+          quality: true,
+          integrity: true,
+          greeting: true,
+          delivery: true,
+          averageRating: true,
+          comment: true,
+          hostAnswer: true,
+          hostAnswerStatus: true,
+          createdAt: true,
+          guest: { select: { name: true } },
+        },
       },
     },
   });
@@ -122,7 +140,18 @@ export async function getResidenceDetail(rawId: number) {
   // new one is public the moment it is added unless something removes it. Which
   // is exactly what happened to `deactivationNote` on its first test: written
   // for the ops team ("میزبان پاسخگو نیست", "اختلاف مالی"), served to guests.
-  const { deactivationNote, ...publicResidence } = residence;
+  const { deactivationNote, ...rest } = residence;
+
+  // A reply that has not been approved is not on the site. Dropped here rather
+  // than filtered in the query, because a review with a pending reply still
+  // belongs on the page — just without the reply.
+  const publicResidence = {
+    ...rest,
+    reviews: rest.reviews.map(({ hostAnswerStatus, hostAnswer, ...review }) => ({
+      ...review,
+      hostAnswer: hostAnswerStatus === "PUBLISHED" ? hostAnswer : null,
+    })),
+  };
 
   return {
     residence: publicResidence,
@@ -163,7 +192,7 @@ export async function getHostProfile(hostId: number) {
     prisma.reservation.count({ where: { hostId } }),
     prisma.reservation.count({ where: { hostId, state: { in: ["SECOND_PAYMENT", "DONE"] } } }),
     prisma.review.findMany({
-      where: { residence: { hostId }, hiddenAt: null },
+      where: { residence: { hostId }, commentStatus: "PUBLISHED" },
       orderBy: { createdAt: "desc" },
       take: 20,
       include: {

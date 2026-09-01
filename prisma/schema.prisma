@@ -941,6 +941,15 @@ model ReservationRoom {
 // `front/components/ObserveResidenceDetails/.../ResReviews`,
 // `front/components/Host/GuestsReviews`.
 
+/// How far through review a piece of user-written text is.
+///
+/// Applied separately to a guest's comment and a host's reply — see `Review`.
+enum ReviewModerationStatus {
+  PENDING /// ثبت شده، منتظر بررسی کارشناس
+  PUBLISHED /// روی سایت دیده می‌شود
+  REJECTED /// رد شد — ردیف می‌ماند، روی سایت نمی‌آید
+}
+
 model Review {
   id            Int         @id @default(autoincrement())
   reservationId Int         @unique @map("reservation_id")
@@ -964,18 +973,34 @@ model Review {
   comment    String
   hostAnswer String? @map("host_answer")
 
-  /// Taken down by an admin, without being destroyed. A review is a guest's
-  /// statement: a host disputing one, or a guest asking why theirs vanished,
-  /// both need the row to still exist. `hiddenAt IS NULL` is the public filter.
-  hiddenAt     DateTime? @map("hidden_at")
-  hiddenReason String?   @map("hidden_reason")
-  hiddenById   Int?      @map("hidden_by_id")
+  /// A review is two things to moderate, not one: what the guest wrote and
+  /// what the host wrote back. Each is approved on its own, and the panel's
+  /// most useful state — "the review is live and the host has just replied" —
+  /// only exists because they are separate.
+  ///
+  /// Nothing is ever destroyed. A rejected review keeps its row, its reason
+  /// and its author, because a host disputing one and a guest asking why
+  /// theirs vanished both need it to still exist.
+  commentStatus    ReviewModerationStatus  @default(PENDING) @map("comment_status")
+  /// Null until the host replies — an unreviewed reply and no reply are
+  /// different facts.
+  hostAnswerStatus ReviewModerationStatus? @map("host_answer_status")
+  hostAnsweredAt   DateTime?               @map("host_answered_at")
+
+  /// The audit trail, for the comment.
+  moderatedAt    DateTime? @map("moderated_at")
+  moderationNote String?   @map("moderation_note")
+  moderatedById  Int?      @map("moderated_by_id")
+
+  hostAnswerModeratedAt DateTime? @map("host_answer_moderated_at")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([residenceId])
-  @@index([residenceId, hiddenAt])
+  @@index([residenceId, commentStatus])
+  @@index([commentStatus, createdAt(sort: Desc)])
+  @@index([hostAnswerStatus])
   @@index([guestId])
   @@map("reviews")
 }
@@ -1780,6 +1805,10 @@ enum NotificationKind {
   REVIEW_RECEIVED
   RESIDENCE_PUBLISHED
   RESIDENCE_REJECTED
+  /// «نظر شما تایید و منتشر شد» — sent from the panel's review page.
+  REVIEW_PUBLISHED
+  /// «پاسخ شما به نظر مهمان منتشر شد»
+  REVIEW_ANSWER_PUBLISHED
   // Either
   MESSAGE_RECEIVED
   ACCOUNT_VERIFIED

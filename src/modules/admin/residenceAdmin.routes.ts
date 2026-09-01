@@ -11,7 +11,8 @@ import {
   CLASSIFICATION_KEYS,
 } from "./residenceClassification.service";
 import { getStats } from "./residenceStats.service";
-import { listForResidence, hideReview, unhideReview, answerReview } from "./reviews.service";
+import * as reviews from "./reviews.service";
+import { sendReviewApprovedMessage } from "./reviewMessages";
 import { prisma } from "@/lib/prisma";
 import { upload, fileToUrl, deleteStoredFile } from "@/middleware/upload";
 import { AppError } from "@/lib/errors";
@@ -133,32 +134,116 @@ router.get(
   validate(z.object({ params: idParam })),
   asyncHandler(async (req, res) => {
     const { id } = req.params as unknown as { id: number };
-    return ok(res, await listForResidence(id, { includeHidden: true }));
+    return ok(res, await reviews.listForResidence(id, { includeHidden: true }));
   })
 );
 
-router.post(
-  "/reviews/:reviewId/hide",
+const reviewIdParam = z.object({ reviewId: z.coerce.number().int().positive() });
+const MODERATION = z.enum(["PENDING", "PUBLISHED", "REJECTED"]);
+
+/** The panel's «نظرات» list, across every listing. */
+router.get(
+  "/reviews",
   validate(
     z.object({
-      params: z.object({ reviewId: z.coerce.number().int().positive() }),
-      // Required. "Why is this review not on the site" is the only question
-      // anyone asks later, and it is asked by people who can see the row.
-      body: z.object({ reason: z.string().trim().min(1).max(500) }),
+      query: z.object({
+        page: z.coerce.number().int().positive().optional(),
+        pageSize: z.coerce.number().int().positive().max(50).optional(),
+        q: z.string().optional(),
+        tab: z.enum(["all", "pending", "published", "rejected", "low"]).optional(),
+        residenceId: z.coerce.number().int().positive().optional(),
+        hostId: z.coerce.number().int().positive().optional(),
+        sort: z.enum(["action", "newest", "oldest", "rating_asc", "rating_desc"]).optional(),
+      }),
+    })
+  ),
+  asyncHandler(async (req, res) => {
+    const result = await reviews.list(req.query as never);
+    // The panel's standard pager reads `meta`, so this goes out in the same
+    // envelope as every other list rather than a shape only this page knows.
+    //
+    // `sortedBy` rides along because the service can decline the requested
+    // order: above its cap, "action" order falls back to newest-first, and a
+    // page that silently shows a different order than the one it offers is
+    // worse than one that says so.
+    return res.status(200).json({
+      status: "success",
+      data: result.items,
+      meta: {
+        page: result.page,
+        pageSize: result.pageSize,
+        total: result.total,
+        pageCount: Math.max(1, Math.ceil(result.total / result.pageSize)),
+        sortedBy: result.sortedBy,
+      },
+    });
+  })
+);
+
+router.get("/reviews/tab-counts", asyncHandler(async (_req, res) => ok(res, await reviews.tabCounts())));
+
+router.get(
+  "/reviews/:reviewId",
+  validate(z.object({ params: reviewIdParam })),
+  asyncHandler(async (req, res) => {
+    const { reviewId } = req.params as unknown as { reviewId: number };
+    return ok(res, await reviews.getOne(reviewId));
+  })
+);
+
+/** Approve or reject the guest's comment. A rejection must say why. */
+router.post(
+  "/reviews/:reviewId/comment-status",
+  validate(
+    z.object({
+      params: reviewIdParam,
+      body: z.object({ status: MODERATION, note: z.string().trim().max(500).optional() }),
     })
   ),
   asyncHandler(async (req, res) => {
     const { reviewId } = req.params as unknown as { reviewId: number };
-    return ok(res, await hideReview(reviewId, req.body.reason, req.user!.sub));
+    return ok(
+      res,
+      await reviews.setCommentStatus(reviewId, req.body.status, {
+        note: req.body.note,
+        actorId: req.user!.sub,
+      })
+    );
   })
 );
 
+/** Approve or reject the host's reply. */
 router.post(
-  "/reviews/:reviewId/unhide",
-  validate(z.object({ params: z.object({ reviewId: z.coerce.number().int().positive() }) })),
+  "/reviews/:reviewId/answer-status",
+  validate(
+    z.object({
+      params: reviewIdParam,
+      body: z.object({ status: MODERATION, note: z.string().trim().max(500).optional() }),
+    })
+  ),
   asyncHandler(async (req, res) => {
     const { reviewId } = req.params as unknown as { reviewId: number };
-    return ok(res, await unhideReview(reviewId, req.user!.sub));
+    return ok(
+      res,
+      await reviews.setHostAnswerStatus(reviewId, req.body.status, {
+        note: req.body.note,
+        actorId: req.user!.sub,
+      })
+    );
+  })
+);
+
+router.put(
+  "/reviews/:reviewId/comment",
+  validate(
+    z.object({
+      params: reviewIdParam,
+      body: z.object({ comment: z.string().trim().min(1).max(4000) }),
+    })
+  ),
+  asyncHandler(async (req, res) => {
+    const { reviewId } = req.params as unknown as { reviewId: number };
+    return ok(res, await reviews.editComment(reviewId, req.body.comment, req.user!.sub));
   })
 );
 
@@ -166,13 +251,33 @@ router.put(
   "/reviews/:reviewId/answer",
   validate(
     z.object({
-      params: z.object({ reviewId: z.coerce.number().int().positive() }),
+      params: reviewIdParam,
       body: z.object({ answer: z.string().trim().min(1).max(2000) }),
     })
   ),
   asyncHandler(async (req, res) => {
     const { reviewId } = req.params as unknown as { reviewId: number };
-    return ok(res, await answerReview(reviewId, req.body.answer, req.user!.sub));
+    return ok(res, await reviews.editHostAnswer(reviewId, req.body.answer, req.user!.sub));
+  })
+);
+
+/**
+ * «به مهمان بگو نظرت تأییده» / «به میزبان بگو نظرت تأییده».
+ *
+ * Refuses if the thing it would announce is not actually published — telling
+ * someone their text is live when it is not is worse than not telling them.
+ */
+router.post(
+  "/reviews/:reviewId/notify",
+  validate(
+    z.object({
+      params: reviewIdParam,
+      body: z.object({ audience: z.enum(["guest", "host"]) }),
+    })
+  ),
+  asyncHandler(async (req, res) => {
+    const { reviewId } = req.params as unknown as { reviewId: number };
+    return ok(res, await sendReviewApprovedMessage(reviewId, req.body.audience, req.user!.sub));
   })
 );
 

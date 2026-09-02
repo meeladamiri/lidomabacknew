@@ -236,14 +236,26 @@ export async function getHostCalendar(
   const [residence, days, reservations] = await Promise.all([
     prisma.residence.findUnique({
       where: { id: residenceId },
+      /**
+       * Everything the calendar screen reads off the listing.
+       *
+       * This replaced two requests — the public calendar plus the public
+       * listing — so it has to answer for both. Capacity and the two discounts
+       * are here because the screen was reading them from that second request
+       * and quietly got zeros when it stopped being made.
+       */
       select: {
         id: true,
         name: true,
         isFast: true,
+        capacity: true,
+        maxCapacity: true,
         weekPrice: true,
         weekendPrice: true,
         peakPrice: true,
         extraGuestsPrice: true,
+        weeklyDiscount: true,
+        monthlyDiscount: true,
         minReservableDays: true,
       },
     }),

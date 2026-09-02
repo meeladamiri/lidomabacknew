@@ -79,7 +79,19 @@ export async function updateCalendar(
 ) {
   const residence = await loadOwnedResidence(hostId, residenceId);
   const roomId = data.roomId ?? null;
-  const dates = data.dates.map((d) => new Date(d));
+
+  /**
+   * The host calendar edits the future, and only the future.
+   *
+   * A past night cannot be booked, so an instant-book answer on one decides
+   * nothing; and its price is what a guest actually paid, which is history
+   * rather than a setting. The UI already refuses to select those days — this
+   * is the boundary saying the same thing, so a mixed selection cannot rewrite
+   * last month on its way to fixing next month.
+   */
+  const today = new Date(new Date().toISOString().slice(0, 10));
+  const dates = data.dates.map((d) => new Date(d)).filter((d) => d >= today);
+  if (dates.length === 0) return { success: true, skipped: data.dates.length };
 
   if (data.reset) {
     await prisma.calendarDay.deleteMany({
@@ -271,4 +283,38 @@ export async function getHostCalendar(
       guestName: r.guest?.name ?? null,
     })),
   };
+}
+
+/**
+ * Instant booking on a date that has already passed.
+ *
+ * The flag governs whether a booking for that night confirms without the host
+ * approving it — so on a night nobody can book any more it decides nothing. It
+ * was still being written, and 141 past rows carry one.
+ *
+ * Two steps, deliberately: clear the flag, then delete only the rows that are
+ * left saying nothing at all. 715 past rows carry a price or a discount, which
+ * is the rate a guest actually paid, and that is history worth keeping — this
+ * must not become "delete the past".
+ */
+export async function clearPastInstantBook() {
+  const today = new Date(new Date().toISOString().slice(0, 10));
+
+  const cleared = await prisma.calendarDay.updateMany({
+    where: { date: { lt: today }, isFast: { not: null } },
+    data: { isFast: null },
+  });
+
+  const removed = await prisma.calendarDay.deleteMany({
+    where: {
+      date: { lt: today },
+      isBlocked: false,
+      isFast: null,
+      isPeak: false,
+      specialPrice: null,
+      discountAmount: null,
+    },
+  });
+
+  return { cleared: cleared.count, removed: removed.count };
 }

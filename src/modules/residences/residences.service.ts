@@ -403,7 +403,15 @@ export async function updateSpecs(
       where: { name: cityName, type: "CITY" },
       select: { id: true },
     });
-    locationId = city?.id;
+    // Loud, not silent. A name that does not match leaves the listing in no
+    // city, which the caller cannot see in a 200 — and a listing with no city
+    // is absent from every search that names one.
+    if (!city) {
+      throw new AppError(400, "CITY_NOT_FOUND", "شهر انتخاب‌شده در فهرست شهرها یافت نشد", {
+        fieldErrors: { city: ["این شهر در سامانه ثبت نشده است"] },
+      });
+    }
+    locationId = city.id;
   }
 
   return prisma.residence.update({

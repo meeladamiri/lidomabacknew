@@ -37,6 +37,16 @@ export const updateSpecsSchema = z.object({
     invoiceAddress: z.string().max(500).optional(),
     neighborhood: z.string().max(200).optional(),
     cityId: numeric(z.number().int()).optional(),
+    /**
+     * The city by name, which is how the wizard's address step knows it.
+     *
+     * It was missing here while both the wizard and `updateSpecs` were written
+     * for it: the front sent `cityName`, zod stripped it as an unknown key,
+     * and the service never saw the field whose lookup it implements. So
+     * choosing a city wrote nothing, on either version of the wizard — the
+     * request returned 200 and the listing stayed in no city at all.
+     */
+    cityName: z.string().max(200).optional(),
     // "نوع ملک" — admin can retype from the detail page
     type: z.enum(RESIDENCE_TYPES).optional(),
     // "اهمیت اقامتگاه" — manual search-ranking weight

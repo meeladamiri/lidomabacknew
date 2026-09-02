@@ -244,8 +244,19 @@ export async function getDashboard(userId: number) {
     guest_current_requests: guestCurrent.map(toCard),
     host_current_requests: hostCurrent.map(toCard),
 
+    /**
+     * Drafts the host has started and not submitted.
+     *
+     * Two ids, deliberately. `id` is the public one, which is the Odoo id for
+     * a migrated listing and belongs in guest-facing URLs. `internal_id` is
+     * the primary key, and it is the only thing the host endpoints and the
+     * submission wizard accept — 1,640 Odoo ids are also some *other*
+     * residence's primary key, so a wizard opened with the public id lands on
+     * a listing the host does not own, or on nothing at all.
+     */
     new_residences: newResidences.map((r) => ({
       id: publicResidenceId(r),
+      internal_id: r.id,
       name: r.name,
       completion_percent: r.completionPercent ?? 0,
       step: r.step ?? 1,
@@ -253,8 +264,10 @@ export async function getDashboard(userId: number) {
       image_url: r.images[0]?.url ?? "",
     })),
 
+    /** Submitted and sitting with a reviewer. Nothing for the host to do. */
     residences_waiting_confirm: waitingResidences.map((r) => ({
       id: publicResidenceId(r),
+      internal_id: r.id,
       name: r.name,
       last_update: r.updatedAt,
       image_url: r.images[0]?.url ?? "",

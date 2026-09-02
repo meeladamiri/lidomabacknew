@@ -12,6 +12,25 @@ export async function getCalendar(req: Request, res: Response) {
   return ok(res, data);
 }
 
+/**
+ * The host's own view: overrides, base rates and booked nights together.
+ *
+ * Addressed by the internal id, not the public one — this is behind auth and
+ * scoped to the caller's own listings, so there is no legacy URL to honour.
+ */
+export async function getHostCalendar(req: Request, res: Response) {
+  if (!req.user) throw AppError.unauthorized();
+  const { roomId, from, to } = req.query as { roomId?: string; from: string; to: string };
+  const data = await service.getHostCalendar(
+    req.user.sub,
+    Number(req.params.id),
+    from,
+    to,
+    roomId ? Number(roomId) : undefined
+  );
+  return ok(res, data);
+}
+
 export async function updateCalendar(req: Request, res: Response) {
   if (!req.user) throw AppError.unauthorized();
   const data = await service.updateCalendar(req.user.sub, Number(req.params.id), req.body);

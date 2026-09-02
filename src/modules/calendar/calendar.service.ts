@@ -195,3 +195,80 @@ export async function pruneEmptyDays(residenceId?: number) {
     },
   });
 }
+
+/**
+ * Everything one screen of the host calendar needs, in one request.
+ *
+ * The page used to fetch the day overrides and then work out prices from
+ * whatever the listing page happened to have cached, and it had no way at all
+ * to tell a night the host blocked from a night a guest booked — both are
+ * `isBlocked: true`, written by the same column. A host could therefore
+ * "unblock" a sold night and offer it to someone else.
+ *
+ * So the booked ranges come back alongside the overrides, and the UI locks
+ * them. DRAFT and HOST_APPROVAL are deliberately not counted: neither holds a
+ * night, and showing them as sold would hide availability the host still has.
+ */
+export async function getHostCalendar(
+  hostId: number,
+  residenceId: number,
+  from: string,
+  to: string,
+  roomId?: number
+) {
+  await loadOwnedResidence(hostId, residenceId);
+
+  const start = new Date(from);
+  const end = new Date(to);
+
+  const [residence, days, reservations] = await Promise.all([
+    prisma.residence.findUnique({
+      where: { id: residenceId },
+      select: {
+        id: true,
+        name: true,
+        isFast: true,
+        weekPrice: true,
+        weekendPrice: true,
+        peakPrice: true,
+        extraGuestsPrice: true,
+        minReservableDays: true,
+      },
+    }),
+    prisma.calendarDay.findMany({
+      where: { residenceId, roomId: roomId ?? null, date: { gte: start, lte: end } },
+      orderBy: { date: "asc" },
+    }),
+    prisma.reservation.findMany({
+      where: {
+        residenceId,
+        state: { in: ["SECOND_PAYMENT", "DONE"] },
+        // Any booking that touches the window, including one that starts
+        // before it and runs into it.
+        startDate: { lte: end },
+        endDate: { gt: start },
+      },
+      select: {
+        reference: true,
+        startDate: true,
+        endDate: true,
+        state: true,
+        guest: { select: { name: true } },
+      },
+      orderBy: { startDate: "asc" },
+    }),
+  ]);
+
+  return {
+    residence,
+    days,
+    reservations: reservations.map((r) => ({
+      reference: r.reference,
+      // Checkout day is not a night: a booking 10th→12th occupies 10 and 11.
+      from: r.startDate.toISOString().slice(0, 10),
+      to: r.endDate.toISOString().slice(0, 10),
+      state: r.state,
+      guestName: r.guest?.name ?? null,
+    })),
+  };
+}

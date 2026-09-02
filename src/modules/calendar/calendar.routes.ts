@@ -11,6 +11,7 @@ publicRouter.get("/:id/calendar", validate(getCalendarSchema), asyncHandler(cont
 
 const hostRouter = Router();
 hostRouter.use(requireAuth, requireHost);
+hostRouter.get("/:id/calendar", validate(getCalendarSchema), asyncHandler(controller.getHostCalendar));
 hostRouter.patch("/:id/calendar", validate(updateCalendarSchema), asyncHandler(controller.updateCalendar));
 
 export { publicRouter as publicCalendarRoutes, hostRouter as hostCalendarRoutes };

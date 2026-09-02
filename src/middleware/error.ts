@@ -42,11 +42,31 @@ export function errorHandler(
   }
 
   if (err instanceof ZodError) {
+    /**
+     * Which field, not just "something".
+     *
+     * `flatten()` keys by `issue.path[0]`, and every schema here is shaped
+     * as { body, params, query } — so a bad `totalArea` came back as
+     * `fieldErrors: { body: [...] }`. The response said «ورودی نامعتبر است»
+     * and named nothing, on requests carrying fifteen fields. That is a large
+     * part of why the wizard's specs step stayed broken: the failure was
+     * visible on every attempt and pointed nowhere.
+     *
+     * Dropping the section prefix gives the caller a map it can put next to
+     * the offending input.
+     */
+    const fieldErrors: Record<string, string[]> = {};
+    const formErrors: string[] = [];
+    for (const issue of err.issues) {
+      const field = issue.path.slice(1).join(".");
+      if (!field) formErrors.push(issue.message);
+      else (fieldErrors[field] ||= []).push(issue.message);
+    }
     return res.status(400).json({
       status: "error",
       code: "VALIDATION_ERROR",
       message: "ورودی نامعتبر است",
-      details: err.flatten(),
+      details: { fieldErrors, formErrors },
     });
   }
 

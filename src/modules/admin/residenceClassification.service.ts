@@ -24,6 +24,48 @@ import * as activity from "@/modules/activity/activity.service";
 export const CLASSIFICATION_KEYS = ["type", "area"] as const;
 export type ClassificationKey = (typeof CLASSIFICATION_KEYS)[number];
 
+/**
+ * The option lists alone, with no listing in hand.
+ *
+ * The host wizard asks this on its first screen, before a residence row
+ * exists to attach answers to.
+ */
+export async function getClassificationOptions() {
+  const amenities = await prisma.amenity.findMany({
+    where: { key: { in: [...CLASSIFICATION_KEYS] } },
+    select: { id: true, key: true, name: true },
+  });
+  return { fields: await optionsFor(amenities) };
+}
+
+async function optionsFor(amenities: { id: number; key: string | null; name: string }[]) {
+  const fields: { key: string; name: string; options: string[] }[] = [];
+  for (const amenity of amenities) {
+    if (!amenity.key) continue;
+    const rows = await prisma.$queryRawUnsafe<{ v: string; c: bigint }[]>(
+      `SELECT extra_features->>'value' AS v, COUNT(*)::bigint AS c
+       FROM residence_amenities
+       WHERE amenity_id = $1 AND extra_features->>'value' IS NOT NULL
+       GROUP BY 1`,
+      amenity.id
+    );
+    const counts = new Map<string, number>();
+    for (const row of rows) {
+      for (const part of (row.v ?? "").split("،")) {
+        const value = part.trim();
+        if (!value) continue;
+        counts.set(value, (counts.get(value) ?? 0) + Number(row.c));
+      }
+    }
+    fields.push({
+      key: amenity.key,
+      name: amenity.name,
+      options: [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([value]) => value),
+    });
+  }
+  return fields;
+}
+
 export async function getClassification(residenceId: number) {
   const amenities = await prisma.amenity.findMany({
     where: { key: { in: [...CLASSIFICATION_KEYS] } },

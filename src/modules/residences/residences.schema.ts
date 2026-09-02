@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { RESIDENCE_TYPES } from "@/lib/residenceType";
+import { numeric } from "./numeric";
 
 export const residenceIdParamSchema = z.object({
   params: z.object({ id: z.coerce.number().int() }),
@@ -13,7 +14,7 @@ export const createResidenceSchema = z.object({
   body: z.object({
     type: z.enum(RESIDENCE_TYPES),
     name: z.string().min(1).max(200).optional(),
-    cityId: z.number().int().optional(),
+    cityId: numeric(z.number().int()).optional(),
     // The wizard's address step knows the city only by the name the host
     // picked. It used to look the id up with its own request before this one,
     // which put a second serial round trip in front of every address save.
@@ -35,16 +36,16 @@ export const updateSpecsSchema = z.object({
     // "آدرس در فاکتور" — full postal address, invoices only
     invoiceAddress: z.string().max(500).optional(),
     neighborhood: z.string().max(200).optional(),
-    cityId: z.number().int().optional(),
+    cityId: numeric(z.number().int()).optional(),
     // "نوع ملک" — admin can retype from the detail page
     type: z.enum(RESIDENCE_TYPES).optional(),
     // "اهمیت اقامتگاه" — manual search-ranking weight
-    importance: z.number().int().min(0).optional(),
+    importance: numeric(z.number().int().min(0)).optional(),
     floor: z.string().optional(),
-    foundationArea: z.number().optional(),
-    totalArea: z.number().optional(),
-    latitude: z.number().optional(),
-    longitude: z.number().optional(),
+    foundationArea: numeric(z.number().min(0)).optional(),
+    totalArea: numeric(z.number().min(0)).optional(),
+    latitude: numeric(z.number().min(-90).max(90)).optional(),
+    longitude: numeric(z.number().min(-180).max(180)).optional(),
     step: z.number().int().min(0).max(14).optional(), // wizard progress marker, never moves backward
   }),
 });
@@ -105,15 +106,15 @@ export const updateRulesSchema = z.object({
     checkinFrom: z.string().optional(),
     checkinTo: z.string().optional(),
     checkout: z.string().optional(),
-    minReservableDays: z.number().int().optional(),
+    minReservableDays: numeric(z.number().int().min(1)).optional(),
     rulesDesc: z.string().optional(),
     cancellationPolicy: z.string().optional(),
     cancellationPolicyDesc: z.string().optional(),
-    fullReturnTime: z.number().int().optional(),
-    beforeStartTime: z.number().int().optional(),
-    hostShareTotalAmount: z.number().optional(),
-    hostSharePastNights: z.number().optional(),
-    hostShareFutureNights: z.number().optional(),
+    fullReturnTime: numeric(z.number().int().min(0)).optional(),
+    beforeStartTime: numeric(z.number().int().min(0)).optional(),
+    hostShareTotalAmount: numeric(z.number().min(0).max(100)).optional(),
+    hostSharePastNights: numeric(z.number().min(0).max(100)).optional(),
+    hostShareFutureNights: numeric(z.number().min(0).max(100)).optional(),
     // Wizard progress, folded into this write so the front does not need a
     // second PATCH to advance it. Never moves backward — see stepPatch.
     step: z.number().int().min(0).max(14).optional(),
@@ -123,15 +124,15 @@ export const updateRulesSchema = z.object({
 export const updatePricingSchema = z.object({
   params: z.object({ id: z.coerce.number().int() }),
   body: z.object({
-    weekPrice: z.number().min(0).optional(),
-    weekendPrice: z.number().min(0).optional(),
-    peakPrice: z.number().min(0).optional(),
-    extraPrice: z.number().min(0).optional(),
-    extraGuestsPrice: z.number().min(0).optional(),
+    weekPrice: numeric(z.number().min(0)).optional(),
+    weekendPrice: numeric(z.number().min(0)).optional(),
+    peakPrice: numeric(z.number().min(0)).optional(),
+    extraPrice: numeric(z.number().min(0)).optional(),
+    extraGuestsPrice: numeric(z.number().min(0)).optional(),
     // "نرخ نفر اضافه ( ایام پیک )"
-    extraGuestsPeakPrice: z.number().min(0).optional(),
-    weeklyDiscount: z.number().min(0).max(100).optional(),
-    monthlyDiscount: z.number().min(0).max(100).optional(),
+    extraGuestsPeakPrice: numeric(z.number().min(0)).optional(),
+    weeklyDiscount: numeric(z.number().min(0).max(100)).optional(),
+    monthlyDiscount: numeric(z.number().min(0).max(100)).optional(),
     // Wizard progress, folded into this write so the front does not need a
     // second PATCH to advance it. Never moves backward — see stepPatch.
     step: z.number().int().min(0).max(14).optional(),
@@ -141,8 +142,8 @@ export const updatePricingSchema = z.object({
 export const updateCapacitySchema = z.object({
   params: z.object({ id: z.coerce.number().int() }),
   body: z.object({
-    capacity: z.number().int().optional(),
-    maxCapacity: z.number().int().optional(),
+    capacity: numeric(z.number().int().min(0)).optional(),
+    maxCapacity: numeric(z.number().int().min(0)).optional(),
     // Wizard progress, folded into this write so the front does not need a
     // second PATCH to advance it. Never moves backward — see stepPatch.
     step: z.number().int().min(0).max(14).optional(),
@@ -162,19 +163,19 @@ export const changeStateSchema = z.object({
 export const roomSchema = z.object({
   name: z.string().min(1).max(200),
   description: z.string().optional(),
-  capacity: z.number().int().optional(),
-  maxCapacity: z.number().int().optional(),
-  singleBed: z.number().int().min(0).optional(),
-  doubleBed: z.number().int().min(0).optional(),
-  traditionalBed: z.number().int().min(0).optional(),
-  extraBeds: z.number().int().min(0).optional(),
-  weekPrice: z.number().min(0).optional(),
-  weekendPrice: z.number().min(0).optional(),
-  peakPrice: z.number().min(0).optional(),
-  extraPrice: z.number().min(0).optional(),
-  extraPeakPrice: z.number().min(0).optional(),
-  weeklyDiscount: z.number().min(0).max(100).optional(),
-  monthlyDiscount: z.number().min(0).max(100).optional(),
+  capacity: numeric(z.number().int().min(0)).optional(),
+  maxCapacity: numeric(z.number().int().min(0)).optional(),
+  singleBed: numeric(z.number().int().min(0)).optional(),
+  doubleBed: numeric(z.number().int().min(0)).optional(),
+  traditionalBed: numeric(z.number().int().min(0)).optional(),
+  extraBeds: numeric(z.number().int().min(0)).optional(),
+  weekPrice: numeric(z.number().min(0)).optional(),
+  weekendPrice: numeric(z.number().min(0)).optional(),
+  peakPrice: numeric(z.number().min(0)).optional(),
+  extraPrice: numeric(z.number().min(0)).optional(),
+  extraPeakPrice: numeric(z.number().min(0)).optional(),
+  weeklyDiscount: numeric(z.number().min(0).max(100)).optional(),
+  monthlyDiscount: numeric(z.number().min(0).max(100)).optional(),
   coolingSystem: z.boolean().optional(),
   heatingSystem: z.boolean().optional(),
   refrigerator: z.enum(["NONE", "SHARED", "DEDICATED"]).optional(),
@@ -198,8 +199,8 @@ export const updateRoomSchema = z.object({
 export const replaceRoomsSchema = z.object({
   params: z.object({ id: z.coerce.number().int() }),
   body: z.object({
-    capacity: z.number().int().optional(),
-    maxCapacity: z.number().int().optional(),
+    capacity: numeric(z.number().int().min(0)).optional(),
+    maxCapacity: numeric(z.number().int().min(0)).optional(),
     rooms: z.array(roomSchema),
   }),
 });
@@ -222,5 +223,19 @@ export const updateImageSchema = z.object({
     title: z.string().max(200).nullable().optional(),
     alt: z.string().max(300).nullable().optional(),
     isMain: z.boolean().optional(),
+  }),
+});
+
+/**
+ * One classification answer.
+ *
+ * Multi-valued because the data is: listings carrying «شهری، ساحلی» are real,
+ * and the tag engine matches any one of the values.
+ */
+export const classificationBodySchema = z.object({
+  params: z.object({ id: z.coerce.number().int() }),
+  body: z.object({
+    key: z.enum(["type", "area"]),
+    values: z.array(z.string().max(80)).max(10),
   }),
 });

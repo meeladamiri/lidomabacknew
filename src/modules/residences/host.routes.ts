@@ -16,8 +16,10 @@ import {
   updateRoomSchema,
   updateRulesSchema,
   updateSpecsSchema,
+  updateImageSchema,
 } from "./residences.schema";
 import * as controller from "./host.controller";
+import { classificationBodySchema } from "./residences.schema";
 
 const router = Router();
 
@@ -26,6 +28,10 @@ router.use(requireAuth, requireHost);
 router.get("/", asyncHandler(controller.list));
 router.post("/", validate(createResidenceSchema), asyncHandler(controller.create));
 router.get("/stats", asyncHandler(controller.stats));
+
+// The two taxonomies the SEO tag pages are built from. Fixed path, declared
+// before "/:id" could swallow it.
+router.get("/classification-options", asyncHandler(controller.classificationOptions));
 
 // The wizard's own copy: titles, descriptions and the option tiles. Fixed
 // path, so it is declared before "/:id" could swallow it.
@@ -37,6 +43,12 @@ router.patch("/:id/rules", validate(updateRulesSchema), asyncHandler(controller.
 router.patch("/:id/pricing", validate(updatePricingSchema), asyncHandler(controller.updatePricing));
 router.patch("/:id/capacity", validate(updateCapacitySchema), asyncHandler(controller.updateCapacity));
 router.patch("/:id/state", validate(changeStateSchema), asyncHandler(controller.changeState));
+router.get("/:id/classification", validate(residenceIdParamSchema), asyncHandler(controller.residenceClassification));
+router.patch(
+  "/:id/classification",
+  validate(classificationBodySchema),
+  asyncHandler(controller.saveClassification)
+);
 
 router.post("/:id/rooms", validate(createRoomSchema), asyncHandler(controller.addRoom));
 router.put("/:id/rooms", validate(replaceRoomsSchema), asyncHandler(controller.replaceRooms));
@@ -44,6 +56,7 @@ router.patch("/rooms/:roomId", validate(updateRoomSchema), asyncHandler(controll
 router.delete("/rooms/:roomId", asyncHandler(controller.deleteRoom));
 
 router.post("/:id/images", validate(residenceIdParamSchema), upload.single("image"), asyncHandler(controller.uploadImage));
+router.patch("/:id/images/:imageId", validate(updateImageSchema), asyncHandler(controller.updateImage));
 router.delete("/:id/images/:imageId", asyncHandler(controller.deleteImage));
 router.post("/:id/images/order", validate(reorderImagesSchema), asyncHandler(controller.reorderImages));
 

@@ -35,10 +35,34 @@ export async function getClassificationOptions() {
     where: { key: { in: [...CLASSIFICATION_KEYS] } },
     select: { id: true, key: true, name: true },
   });
-  return { fields: await optionsFor(amenities) };
+  const fields = await optionsFor(amenities, MIN_USAGE_TO_OFFER);
+  return { fields };
 }
 
-async function optionsFor(amenities: { id: number; key: string | null; name: string }[]) {
+/**
+ * How many listings must already carry a value before it is offered as a
+ * choice to a new host.
+ *
+ * These lists are derived from usage, so one mistyped listing becomes a
+ * permanent category. «خانه ویلایی» — a residence *type* — sits in the region
+ * field of exactly one listing out of 8,500, and without this it appears as a
+ * region on the first screen of the submission wizard, where every new host
+ * would be offered it.
+ *
+ * The gap in the real data is wide enough that no threshold in this
+ * neighbourhood is a judgement call: the least-used genuine region is on 37
+ * listings, and the next value down is on one.
+ *
+ * Deliberately NOT applied to `getClassification`, which the admin panel
+ * uses. The panel is where a wrong value gets corrected, so it has to keep
+ * showing it — hiding it there would make it unfixable.
+ */
+const MIN_USAGE_TO_OFFER = 5;
+
+async function optionsFor(
+  amenities: { id: number; key: string | null; name: string }[],
+  minUsage = 0
+) {
   const fields: { key: string; name: string; options: string[] }[] = [];
   for (const amenity of amenities) {
     if (!amenity.key) continue;
@@ -60,7 +84,10 @@ async function optionsFor(amenities: { id: number; key: string | null; name: str
     fields.push({
       key: amenity.key,
       name: amenity.name,
-      options: [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([value]) => value),
+      options: [...counts.entries()]
+        .filter(([, used]) => used >= minUsage)
+        .sort((a, b) => b[1] - a[1])
+        .map(([value]) => value),
     });
   }
   return fields;

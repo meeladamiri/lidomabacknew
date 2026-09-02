@@ -51,6 +51,14 @@ export const updateSpecsSchema = z.object({
     type: z.enum(RESIDENCE_TYPES).optional(),
     // "اهمیت اقامتگاه" — manual search-ranking weight
     importance: numeric(z.number().int().min(0)).optional(),
+    /**
+     * «رزرو آنی» — whether a booking confirms without the host approving it.
+     *
+     * One boolean on the listing, which is the whole answer for almost every
+     * host. A single date can still differ, but that is stored as an override
+     * on that date only — see calendar.service.
+     */
+    isFast: z.boolean().optional(),
     floor: z.string().optional(),
     foundationArea: numeric(z.number().min(0)).optional(),
     totalArea: numeric(z.number().min(0)).optional(),

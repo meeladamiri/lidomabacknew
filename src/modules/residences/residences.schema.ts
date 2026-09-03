@@ -225,7 +225,12 @@ export const replaceRoomsSchema = z.object({
 
 export const reorderImagesSchema = z.object({
   params: z.object({ id: z.coerce.number().int() }),
-  body: z.object({ imageIds: z.array(z.number().int()) }),
+  body: z.object({
+    imageIds: z.array(z.number().int()),
+    // Sent by the wizard and silently stripped until now, so the listing's
+    // progress marker stood still on this step.
+    step: numeric(z.number().int()),
+  }),
 });
 
 /**

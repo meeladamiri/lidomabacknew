@@ -1,3 +1,4 @@
+import type { NextFunction, Request, Response } from "express";
 import multer from "multer";
 import multerS3 from "multer-s3";
 import { DeleteObjectCommand, S3Client } from "@aws-sdk/client-s3";
@@ -5,9 +6,34 @@ import path from "path";
 import fs from "fs";
 import crypto from "crypto";
 import { env } from "@/config/env";
+import { AppError } from "@/lib/errors";
 
 const UPLOAD_ROOT = path.resolve(process.cwd(), "uploads");
-fs.mkdirSync(UPLOAD_ROOT, { recursive: true });
+
+/**
+ * Whether local disk is actually usable.
+ *
+ * On Liara — and on any container built from a read-only image — /app is
+ * read-only. `mkdirSync` succeeds anyway, because `uploads/` ships inside the
+ * image (it carries `sample.jpg`), so the only thing that ever failed was the
+ * write itself: EROFS raised inside multer, reaching the error handler as an
+ * object it did not recognise and going out as a bare 500 «خطای داخلی سرور».
+ * Every upload in production failed that way and nothing said why.
+ *
+ * So probe once, at boot, and let the guard below answer before a host has
+ * spent a minute sending a photo nowhere.
+ */
+const diskWritable = (() => {
+  try {
+    fs.mkdirSync(UPLOAD_ROOT, { recursive: true });
+    const probe = path.join(UPLOAD_ROOT, `.write-probe-${process.pid}`);
+    fs.writeFileSync(probe, "");
+    fs.unlinkSync(probe);
+    return true;
+  } catch {
+    return false;
+  }
+})();
 
 function generateFilename(originalname: string): string {
   const ext = path.extname(originalname) || "";
@@ -57,6 +83,35 @@ export const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
 });
 
+/** True when uploads go to object storage rather than the container disk. */
+export const usingObjectStorage = useObjectStorage;
+
+/**
+ * Refuses an upload the server has nowhere to put, before reading the body.
+ *
+ * Declared in front of every `upload.*` middleware. Without it the host waits
+ * for the whole file to travel and is then told «خطای داخلی سرور» — the wait
+ * and no explanation.
+ */
+export function requireUploadStorage(_req: Request, _res: Response, next: NextFunction) {
+  if (useObjectStorage || diskWritable) return next();
+  return next(
+    AppError.internal(
+      "سرویس ذخیره‌سازی فایل پیکربندی نشده است. لطفاً با پشتیبانی تماس بگیرید.",
+      "STORAGE_UNAVAILABLE"
+    )
+  );
+}
+
+if (!useObjectStorage) {
+  // eslint-disable-next-line no-console
+  console.warn(
+    diskWritable
+      ? "[upload] object storage not configured — files go to local disk and will not survive a restart. Set LIARA_ENDPOINT / LIARA_BUCKET / LIARA_ACCESS_KEY / LIARA_SECRET_KEY."
+      : "[upload] object storage not configured AND the local disk is read-only — every upload will be refused. Set LIARA_ENDPOINT / LIARA_BUCKET / LIARA_ACCESS_KEY / LIARA_SECRET_KEY."
+  );
+}
+
 export function fileToUrl(file: Express.Multer.File): string {
   const s3Location = (file as Express.MulterS3.File).location;
   if (useObjectStorage && s3Location) {
@@ -81,4 +136,4 @@ export async function deleteStoredFile(url: string | null | undefined): Promise<
   }
 }
 
-export { UPLOAD_ROOT };
+export { UPLOAD_ROOT, diskWritable };

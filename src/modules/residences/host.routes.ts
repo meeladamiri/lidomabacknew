@@ -2,7 +2,7 @@ import { Router } from "express";
 import { asyncHandler } from "@/middleware/asyncHandler";
 import { validate } from "@/middleware/validate";
 import { requireAuth, requireHost } from "@/middleware/auth";
-import { upload } from "@/middleware/upload";
+import { requireUploadStorage, upload } from "@/middleware/upload";
 import {
   changeStateSchema,
   createResidenceSchema,
@@ -55,7 +55,13 @@ router.put("/:id/rooms", validate(replaceRoomsSchema), asyncHandler(controller.r
 router.patch("/rooms/:roomId", validate(updateRoomSchema), asyncHandler(controller.updateRoom));
 router.delete("/rooms/:roomId", asyncHandler(controller.deleteRoom));
 
-router.post("/:id/images", validate(residenceIdParamSchema), upload.single("image"), asyncHandler(controller.uploadImage));
+router.post(
+  "/:id/images",
+  validate(residenceIdParamSchema),
+  requireUploadStorage,
+  upload.single("image"),
+  asyncHandler(controller.uploadImage)
+);
 router.patch("/:id/images/:imageId", validate(updateImageSchema), asyncHandler(controller.updateImage));
 router.delete("/:id/images/:imageId", asyncHandler(controller.deleteImage));
 router.post("/:id/images/order", validate(reorderImagesSchema), asyncHandler(controller.reorderImages));
@@ -63,6 +69,7 @@ router.post("/:id/images/order", validate(reorderImagesSchema), asyncHandler(con
 router.post(
   "/:id/documents",
   validate(residenceIdParamSchema),
+  requireUploadStorage,
   upload.fields([
     { name: "hostNationalCard", maxCount: 1 },
     { name: "document", maxCount: 1 },

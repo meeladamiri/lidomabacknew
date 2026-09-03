@@ -79,7 +79,13 @@ export async function updateAmenities(req: Request, res: Response) {
     Number(req.params.id),
     req.body.amenities,
     req.body.other,
-    req.body.step
+    req.body.step,
+    // Without this the service takes its unscoped path and deletes every
+    // amenity on the listing — including «نوع اقامتگاه» and «منطقه اقامتگاه»,
+    // which step one writes and the SEO tag engine reads. The schema accepted
+    // the field and the service honoured it; only this hand-off was missing,
+    // so step one silently emptied itself every time a host opened step five.
+    req.body.scopeIds
   );
   return ok(res, data);
 }
@@ -170,6 +176,6 @@ export async function deleteImage(req: Request, res: Response) {
 }
 
 export async function reorderImages(req: Request, res: Response) {
-  await service.reorderImages(hostId(req), Number(req.params.id), req.body.imageIds);
+  await service.reorderImages(hostId(req), Number(req.params.id), req.body.imageIds, req.body.step);
   return ok(res, { success: true });
 }

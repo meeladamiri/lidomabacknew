@@ -718,7 +718,12 @@ export async function deleteImage(hostId: number, residenceId: number, imageId: 
 // excludes the main image entirely (it's set explicitly at upload time), so
 // forcing index 0 to be main here would both mis-flag a gallery photo and
 // leave two images marked main at once.
-export async function reorderImages(hostId: number, residenceId: number, imageIds: number[]) {
+export async function reorderImages(
+  hostId: number,
+  residenceId: number,
+  imageIds: number[],
+  step?: number
+) {
   await assertOwnership(hostId, residenceId);
   const toDelete = await prisma.residenceImage.findMany({
     where: { residenceId, isMain: false, id: { notIn: imageIds } },
@@ -736,4 +741,12 @@ export async function reorderImages(hostId: number, residenceId: number, imageId
       })
     )
   );
+  // The marker only ever moves forward — a host revisiting this step from the
+  // rail must not drag the listing's progress back with them.
+  if (step !== undefined) {
+    await prisma.residence.updateMany({
+      where: { id: residenceId, step: { lt: step } },
+      data: { step },
+    });
+  }
 }

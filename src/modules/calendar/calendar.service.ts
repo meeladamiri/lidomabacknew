@@ -254,6 +254,7 @@ export async function getHostCalendar(
         weekendPrice: true,
         peakPrice: true,
         extraGuestsPrice: true,
+        extraGuestsPeakPrice: true,
         weeklyDiscount: true,
         monthlyDiscount: true,
         minReservableDays: true,

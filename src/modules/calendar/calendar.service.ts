@@ -30,20 +30,81 @@ async function loadOwnedResidence(hostId: number, residenceId: number) {
   return residence;
 }
 
+/**
+ * What a visitor needs to pick dates and see a price.
+ *
+ * It used to return the day overrides alone — an array of exceptions with no
+ * rates and no idea which nights were taken. That was not enough to draw a
+ * booking calendar, so the front stopped calling it and started calling the
+ * *host* endpoint instead, which is behind `requireHost` and scoped to the
+ * caller's own listings. Every visitor therefore got 401 (logged out) or 404
+ * (logged in, not the owner), and nobody could book at all.
+ *
+ * So this now answers with the same three things the host view does — rates,
+ * overrides, booked ranges — minus everything that is nobody else's business:
+ * a booked range comes back as two dates, with no reference, no state and no
+ * guest name.
+ */
 export async function getCalendar(
   residenceId: number,
   roomId: number | undefined,
   from: string,
   to: string
 ) {
-  return prisma.calendarDay.findMany({
-    where: {
-      residenceId,
-      roomId: roomId ?? null,
-      date: { gte: new Date(from), lte: new Date(to) },
-    },
-    orderBy: { date: "asc" },
-  });
+  const start = new Date(from);
+  const end = new Date(to);
+
+  const [residence, days, reservations] = await Promise.all([
+    prisma.residence.findUnique({
+      where: { id: residenceId },
+      select: {
+        id: true,
+        name: true,
+        isFast: true,
+        capacity: true,
+        maxCapacity: true,
+        weekPrice: true,
+        weekendPrice: true,
+        peakPrice: true,
+        extraGuestsPrice: true,
+        extraGuestsPeakPrice: true,
+        weeklyDiscount: true,
+        monthlyDiscount: true,
+        minReservableDays: true,
+      },
+    }),
+    prisma.calendarDay.findMany({
+      where: {
+        residenceId,
+        roomId: roomId ?? null,
+        date: { gte: start, lte: end },
+      },
+      orderBy: { date: "asc" },
+    }),
+    prisma.reservation.findMany({
+      where: {
+        residenceId,
+        // Same two states the host view counts: neither DRAFT nor
+        // HOST_APPROVAL holds a night, and showing them as sold would hide
+        // availability that is still for sale.
+        state: { in: ["SECOND_PAYMENT", "DONE"] },
+        startDate: { lte: end },
+        endDate: { gt: start },
+      },
+      select: { startDate: true, endDate: true },
+      orderBy: { startDate: "asc" },
+    }),
+  ]);
+
+  return {
+    residence,
+    days,
+    reservations: reservations.map((r) => ({
+      // Checkout day is not a night: a booking 10th→12th occupies 10 and 11.
+      from: r.startDate.toISOString().slice(0, 10),
+      to: r.endDate.toISOString().slice(0, 10),
+    })),
+  };
 }
 
 /** True when a row carries no exception at all and is therefore just noise. */

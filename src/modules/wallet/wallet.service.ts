@@ -49,15 +49,22 @@ export interface CreditInput {
  * A negative `amount` is a withdrawal and is checked against the balance
  * inside the transaction, so two concurrent payout requests cannot both pass
  * a check that was true before either of them ran.
+ *
+ * `tx` is optional and lets a caller fold this into a larger transaction of
+ * its own — recording a guest's wallet payment has to debit the wallet and
+ * write the `ReservationPayment` row atomically, or a failed debit can leave
+ * a payment on record for money that was never actually taken, and a failed
+ * payment-write can leave a debit with nothing to show for it. Omit it and
+ * this opens its own transaction, exactly as before.
  */
-export async function credit(input: CreditInput) {
+export async function credit(input: CreditInput, tx?: Prisma.TransactionClient) {
   const amount = round(input.amount);
   if (!Number.isFinite(amount) || amount === 0) {
     throw AppError.badRequest("مبلغ تراکنش نامعتبر است");
   }
 
-  return prisma.$transaction(async (tx) => {
-    const wallet = await ensureWallet(input.userId, tx);
+  const run = async (t: Prisma.TransactionClient) => {
+    const wallet = await ensureWallet(input.userId, t);
 
     const blocked = input.blocked ?? false;
     const current = blocked ? wallet.blockedBalance : wallet.balance;
@@ -67,12 +74,12 @@ export async function credit(input: CreditInput) {
       throw AppError.badRequest("موجودی کافی نیست");
     }
 
-    const updated = await tx.wallet.update({
+    const updated = await t.wallet.update({
       where: { id: wallet.id },
       data: blocked ? { blockedBalance: next } : { balance: next },
     });
 
-    const transaction = await tx.walletTransaction.create({
+    const transaction = await t.walletTransaction.create({
       data: {
         walletId: wallet.id,
         kind: input.kind,
@@ -84,7 +91,9 @@ export async function credit(input: CreditInput) {
     });
 
     return { wallet: updated, transaction };
-  });
+  };
+
+  return tx ? run(tx) : prisma.$transaction(run);
 }
 
 /**

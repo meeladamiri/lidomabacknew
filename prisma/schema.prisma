@@ -1999,6 +1999,7 @@ model Notification {
 enum WalletTransactionKind {
   BOOKING_INCOME // a host's share of a completed stay
   BOOKING_REFUND // money returned to a guest
+  BOOKING_PAYMENT // a guest's wallet debited to pay for a booking — the mirror of BOOKING_REFUND
   SETTLEMENT // paid out to a bank account
   GIFT // promotional credit
   ADJUSTMENT // a correction made by an admin

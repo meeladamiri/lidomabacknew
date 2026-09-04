@@ -2,6 +2,7 @@ import { Prisma, type ReservationPaymentMethod } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { AppError } from "@/lib/errors";
 import * as activity from "@/modules/activity/activity.service";
+import * as walletService from "@/modules/wallet/wallet.service";
 
 /**
  * پرداخت‌های مهمان.
@@ -58,6 +59,22 @@ async function ensureOpeningBalance(tx: Prisma.TransactionClient, reservationId:
       recordedByName: "سیستم",
     },
   });
+}
+
+/**
+ * Re-derives the cached totals from the ledger.
+ *
+ * Exported for the reservation-state paths: reaching «قطعی» used to *stamp*
+ * `paidAmount`/`remainingAmount` as fully settled, regardless of what the
+ * ledger actually held — confirming a reservation is not the same claim as
+ * confirming it was paid, and stamping the two together is how "waiting on
+ * the guest" quietly turned into "already collected". Calling this instead
+ * makes the state change agree with whatever the ledger already says, opening
+ * balance included, rather than overwriting it with an assumption.
+ */
+export async function ensureAccurateTotals(tx: Prisma.TransactionClient, reservationId: number) {
+  await ensureOpeningBalance(tx, reservationId);
+  return recompute(tx, reservationId);
 }
 
 /** Re-derives the cached totals from the ledger. */
@@ -145,7 +162,7 @@ export async function record(input: {
 
   const reservation = await prisma.reservation.findUnique({
     where: { id: input.reservationId },
-    select: { id: true, reference: true, state: true },
+    select: { id: true, reference: true, state: true, guestId: true },
   });
   if (!reservation) throw AppError.notFound("رزرو پیدا نشد");
 
@@ -161,6 +178,27 @@ export async function record(input: {
 
   const result = await prisma.$transaction(async (tx) => {
     await ensureOpeningBalance(tx, input.reservationId);
+
+    /**
+     * "کیف پول" is not a note saying the money came from somewhere else — it
+     * is an instruction to actually take it from the guest's own balance.
+     * Debited inside this same transaction: if the guest does not have the
+     * money, `walletService.credit` throws (its own insufficient-balance
+     * check) and the whole transaction rolls back, so no `ReservationPayment`
+     * row is left behind claiming a payment that never happened.
+     */
+    if (input.method === "WALLET") {
+      await walletService.credit(
+        {
+          userId: reservation.guestId,
+          kind: "BOOKING_PAYMENT",
+          amount: -input.amount,
+          description: `پرداخت رزرو ${reservation.reference} از کیف پول`,
+          reservationId: input.reservationId,
+        },
+        tx
+      );
+    }
 
     const payment = await tx.reservationPayment.create({
       data: {
@@ -214,6 +252,29 @@ export async function voidPayment(input: {
       where: { id: payment.id },
       data: { voidedAt: new Date(), voidedReason: reason, voidedById: input.actorId },
     });
+
+    // The money left the guest's wallet when this was recorded; voiding it
+    // without giving that back would be a payment that both never happened
+    // (per the ledger) and still cost the guest (per their balance).
+    if (payment.method === "WALLET") {
+      const reservation = await tx.reservation.findUnique({
+        where: { id: payment.reservationId },
+        select: { guestId: true, reference: true },
+      });
+      if (reservation) {
+        await walletService.credit(
+          {
+            userId: reservation.guestId,
+            kind: "ADJUSTMENT",
+            amount: payment.amount,
+            description: `بازگشت پرداخت کیف‌پولی باطل‌شده — رزرو ${reservation.reference}`,
+            reservationId: payment.reservationId,
+          },
+          tx
+        );
+      }
+    }
+
     return recompute(tx, payment.reservationId);
   });
 

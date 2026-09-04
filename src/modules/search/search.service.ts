@@ -619,6 +619,31 @@ export interface StayQuote {
   total: number;
   perNight: number;
   discountPercent: number;
+  /** Who this was priced for — the reader's own guest count, or the listing's base capacity when they gave none. */
+  guests: number;
+  /**
+   * The same categories the booking box breaks a stay into.
+   *
+   * A card used to reprice the stay a second time on the client to show this
+   * — with none of the peak rate, the extra-guest rate or any discount in
+   * reach (the search list never fetches those fields, for every listing on
+   * a page of results that has no dates selected). The two totals on the
+   * same card could and did disagree. This is the same `calculateStayPrice`
+   * result the total above comes from, just kept in categories instead of
+   * collapsed to one number, so there is exactly one calculation to agree
+   * or disagree with.
+   */
+  breakdown: {
+    weekdayNights: number;
+    weekdayTotal: number;
+    weekendNights: number;
+    weekendTotal: number;
+    peakNights: number;
+    peakTotal: number;
+    extraGuests: number;
+    extraGuestsTotal: number;
+    discountAmount: number;
+  };
 }
 
 /**
@@ -692,11 +717,42 @@ async function stayPricesFor(
 
     if (quote.nights < 1 || quote.totalAmount <= 0) continue;
 
+    let weekdayNights = 0,
+      weekdayTotal = 0,
+      weekendNights = 0,
+      weekendTotal = 0,
+      peakNights = 0,
+      peakTotal = 0;
+    for (const night of quote.nightlyBreakdown) {
+      if (night.isPeak) {
+        peakNights++;
+        peakTotal += night.unitPrice;
+      } else if (night.isWeekend) {
+        weekendNights++;
+        weekendTotal += night.unitPrice;
+      } else {
+        weekdayNights++;
+        weekdayTotal += night.unitPrice;
+      }
+    }
+
     out.set(residence.id, {
       nights: quote.nights,
       total: Math.round(quote.totalAmount),
       perNight: Math.round(quote.totalAmount / quote.nights),
       discountPercent: quote.discountPercent,
+      guests: (filters.guestsCount ?? residence.capacity) ?? 0,
+      breakdown: {
+        weekdayNights,
+        weekdayTotal,
+        weekendNights,
+        weekendTotal,
+        peakNights,
+        peakTotal,
+        extraGuests,
+        extraGuestsTotal: Math.round(quote.extraGuestsTotal),
+        discountAmount: Math.round(quote.discountAmount),
+      },
     });
   }
 

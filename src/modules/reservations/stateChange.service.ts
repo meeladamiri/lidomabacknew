@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { AppError } from "@/lib/errors";
 import { deadlineIn, getSettings } from "@/modules/settings/reservationSettings.service";
 import * as walletService from "@/modules/wallet/wallet.service";
+import { ensureAccurateTotals } from "./payments.service";
 import * as reservationSettings from "@/modules/settings/reservationSettings.service";
 import * as notify from "@/modules/notifications/events";
 import { onReservationStateChanged } from "@/modules/conversations/bookingHooks";
@@ -209,8 +210,6 @@ export async function changeState(input: ChangeStateInput) {
   }
 
   if (to === "DONE") {
-    data.paidAmount = reservation.totalAmount + (reservation.guestCommission ?? 0);
-    data.remainingAmount = 0;
     // The deposit panel reads this. Leaving it null on a booking that already
     // has a host share means the panel has to guess, and every other reader
     // has to remember to guess the same way.
@@ -225,6 +224,20 @@ export async function changeState(input: ChangeStateInput) {
       data,
       select: { id: true, state: true, reference: true, hostShare: true },
     });
+
+    /**
+     * Reaching «قطعی» confirms the booking, not that the guest paid in full.
+     * `paidAmount`/`remainingAmount` used to be stamped as fully settled the
+     * moment this ran — so an expert clicking «ثبت پرداخت مهمان» to finalise
+     * a booking the guest still owed money on made that debt disappear from
+     * every screen that reads it, with no payment behind the number. This
+     * instead re-derives both from the actual `ReservationPayment` ledger,
+     * exactly like recording or voiding a payment already does — a booking
+     * can now be «قطعی» and still show a balance due, which is the truth.
+     */
+    if (to === "DONE") {
+      await ensureAccurateTotals(tx, reservation.id);
+    }
 
     await logStateChange({
       reservationId: reservation.id,

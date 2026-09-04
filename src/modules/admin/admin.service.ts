@@ -17,6 +17,7 @@ import * as residencesService from "@/modules/residences/residences.service";
 import * as notify from "@/modules/notifications/events";
 import * as walletService from "@/modules/wallet/wallet.service";
 import * as reservationSettings from "@/modules/settings/reservationSettings.service";
+import { ensureAccurateTotals } from "@/modules/reservations/payments.service";
 import { hostRulesText, hostRuleNotes } from "@/modules/residences/hostRules";
 import * as activity from "@/modules/activity/activity.service";
 
@@ -1243,25 +1244,34 @@ export async function updateReservationByAdmin(
       ? await reservationSettings.breakdownForHost(reservation.hostId, reservation.totalAmount)
       : null;
 
-  const done = await prisma.reservation.update({
-    where: { id },
-    data: {
-      state: "DONE",
-      paidAmount: reservation.totalAmount + (reservation.guestCommission ?? split?.guestCommission ?? 0),
-      remainingAmount: 0,
-      ...(split
-        ? {
-            websiteShare: split.websiteShare,
-            vatAmount: split.vatAmount,
-            guestCommission: split.guestCommission,
-            hostShare: split.hostShare,
-            commissionPercent: split.commissionPercent,
-            vatPercent: split.vatPercent,
-            guestCommissionPercent: split.guestCommissionPercent,
-          }
-        : {}),
-    },
-    include: RESERVATION_INCLUDE,
+  const done = await prisma.$transaction(async (tx) => {
+    const row = await tx.reservation.update({
+      where: { id },
+      data: {
+        state: "DONE",
+        ...(split
+          ? {
+              websiteShare: split.websiteShare,
+              vatAmount: split.vatAmount,
+              guestCommission: split.guestCommission,
+              hostShare: split.hostShare,
+              commissionPercent: split.commissionPercent,
+              vatPercent: split.vatPercent,
+              guestCommissionPercent: split.guestCommissionPercent,
+            }
+          : {}),
+      },
+      include: RESERVATION_INCLUDE,
+    });
+
+    // «تکمیل» confirms the booking, not that the guest paid in full — see the
+    // matching comment in stateChange.service.ts. paidAmount/remainingAmount
+    // come from the real ReservationPayment ledger (including its opening
+    // balance for a booking older than the ledger itself), not an assumption
+    // that markDone means "paid".
+    await ensureAccurateTotals(tx, id);
+
+    return row;
   });
 
   // The host's share lands in the wallet, held rather than withdrawable: the

@@ -12,6 +12,7 @@ import {
   ratesForHost,
 } from "@/modules/settings/reservationSettings.service";
 import { publicResidenceId, resolvePublicResidenceId } from "@/lib/publicId";
+import { getFaqsForPage } from "@/modules/seo/faq.service";
 
 export const RESERVATION_INCLUDE = {
   residence: {
@@ -414,11 +415,39 @@ async function getOwnedReservation(
  * still 404s, because a migrated residence's real public address is its Odoo
  * id, not its row id.
  */
+/**
+ * Which admin-editable FAQ block a reservation's own detail page shows, if
+ * any — reusing the same `Faq` model (scope PAGE) the homepage and /support
+ * read, under a path that names the actual screen rather than a route no
+ * page renders at. Payment has one shared block (both sides are looking at
+ * the same "why hasn't this settled yet" question); every other state
+ * splits by role because a host reading "چرا رزروم منقضی شد" and a guest
+ * reading it want different answers.
+ */
+function reservationFaqPath(state: string, role: "guest" | "host"): string | null {
+  switch (state) {
+    case "HOST_APPROVAL":
+      return `/reservations/host-approval/${role}`;
+    case "SECOND_PAYMENT":
+      return "/reservations/payment";
+    case "EXPIRED":
+      return `/reservations/expired/${role}`;
+    case "DONE":
+      return `/reservations/done/${role}`;
+    default:
+      return null;
+  }
+}
+
 export async function getReservationDetail(userId: number, id: number) {
   const reservation = await getOwnedReservation(userId, id, "either");
+  const role: "guest" | "host" = reservation.guestId === userId ? "guest" : "host";
+  const faqPath = reservationFaqPath(reservation.state, role);
+
   return {
     ...reservation,
     residence: { ...reservation.residence, id: publicResidenceId(reservation.residence) },
+    faqs: faqPath ? await getFaqsForPage({ kind: "page", path: faqPath }) : [],
   };
 }
 

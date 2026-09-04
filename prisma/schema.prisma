@@ -314,7 +314,7 @@ model UserYellowCard {
 }
 
 model User {
-  announcements Announcement[] @relation("AnnouncementAuthor")
+  announcements      Announcement[]     @relation("AnnouncementAuthor")
   id                 Int                @id @default(autoincrement())
   phone              String             @unique
   passwordHash       String?            @map("password_hash")
@@ -349,7 +349,7 @@ model User {
   // a handful negotiated down to 10 or up to 20. Null means "use the rate in
   // ReservationSettings", so raising the global rate moves everyone who was
   // never given a special one.
-  commissionPercent  Float?             @map("commission_percent")
+  commissionPercent Float? @map("commission_percent")
 
   bankAccount         BankAccount?
   yellowCards         UserYellowCard[] @relation("UserYellowCards")
@@ -487,6 +487,27 @@ model Residence {
   deactivatedAt    DateTime? @map("deactivated_at")
   deactivationNote String?   @map("deactivation_note")
 
+  // Admin suspension — a second, independent reason a listing can be off
+  // `published`, distinct from the host's own DEACTIVATED above and from
+  // `state` itself (a suspended listing's `state` stays PUBLISHED; nothing
+  // about the approval it already earned is revoked, it is just hidden).
+  // Two texts because they have two different readers: `suspensionInternalNote`
+  // is for the ops team, `suspensionReason` is what the host is shown.
+  suspendedAt            DateTime? @map("suspended_at")
+  suspensionInternalNote String?   @map("suspension_internal_note")
+  suspensionReason       String?   @map("suspension_reason")
+
+  // A published listing's own fields are what the public site reads, and stay
+  // untouched while a host-submitted edit sits here awaiting review — the
+  // whole reason this exists is so an edit in progress cannot change what a
+  // guest sees before someone has looked at it. Approval merges this object
+  // onto the real columns (same shape as the PATCH bodies host.routes.ts
+  // already accepts); rejection just clears it, with the reason logged to
+  // activity rather than stored on the row (nothing reads a stale rejection
+  // reason once the host has edited again).
+  pendingChanges            Json?     @map("pending_changes")
+  pendingChangesSubmittedAt DateTime? @map("pending_changes_submitted_at")
+
   name        String
   name2       String?
   description String?
@@ -578,6 +599,7 @@ model Residence {
   views          ResidenceView[]
   reviews        Review[]
   conversations  Conversation[]
+  defects        ResidenceDefect[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -585,10 +607,68 @@ model Residence {
   @@index([hostId])
   @@index([locationId])
   @@index([state, published])
+  @@index([suspendedAt])
   // Declared here because a migration already created it — search orders by
   // importance. Without the declaration every `migrate diff` wants to drop it.
   @@index([importance(sort: Desc)])
   @@map("residences")
+}
+
+enum ResidenceDefectSection {
+  DETAILS // نوع/منطقه — SubmitWizard step "details"
+  SPECS // نام و توضیحات — step "specs"
+  LOCATION // آدرس و محل دقیق — step "address"
+  CAPACITY // ظرفیت و اتاق‌ها
+  AMENITIES // امکانات
+  PRICING // نرخ
+  GALLERY // تصاویر
+  DOCUMENTS // مدارک
+  RULES // قوانین و شرایط
+  OTHER
+}
+
+enum ResidenceDefectSeverity {
+  // Publish stays blocked (`Residence.published` forced false) until every
+  // MANDATORY defect on the row is resolved. See admin.service.ts's
+  // syncPublishedFlag, the one place this rule is enforced.
+  MANDATORY
+  // Stays live; shown to the host as a suggestion, nothing enforced.
+  SUGGESTED
+}
+
+/// یک ایراد ثبت‌شده روی یک اقامتگاه — بخش، شدت، و توضیح راهنمای رفعش.
+///
+/// Not a replacement for REJECTED: a rejected listing never went live in the
+/// first place. This is for a listing (new or already published) that is
+/// close but not quite there — specific, itemized, and something the host
+/// can act on without starting over.
+model ResidenceDefect {
+  id          Int       @id @default(autoincrement())
+  residenceId Int       @map("residence_id")
+  residence   Residence @relation(fields: [residenceId], references: [id])
+
+  section     ResidenceDefectSection
+  severity    ResidenceDefectSeverity
+  description String
+
+  // Plain ids, not relations — same convention as ActivityLog.actorId: an
+  // admin id worth keeping on the record, not a row this ever needs to join.
+  reportedById Int?     @map("reported_by_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  // Host tapped «درخواست بررسی مجدد» — moves the listing into «در انتظار
+  // بررسی» instead of leaving it parked in «دارای نقص» with no signal that
+  // anything happened. Cleared if reopened (see below), so this always means
+  // "waiting on an admin right now" rather than "was ever requested".
+  reviewRequestedAt DateTime? @map("review_requested_at")
+
+  // An admin confirmed the fix. Null means still open, regardless of
+  // reviewRequestedAt — a defect is never "done" until someone checks it.
+  resolvedAt   DateTime? @map("resolved_at")
+  resolvedById Int?      @map("resolved_by_id")
+
+  @@index([residenceId, resolvedAt])
+  @@map("residence_defects")
 }
 
 // "فاصله تا جاذبه‌های گردشگری" — distance/ETA from a residence to a nearby
@@ -603,11 +683,11 @@ model Residence {
 /// what makes "nearby" a two-tier answer: real distance where both the listing
 /// and the place have coordinates, same-city everywhere else.
 model Attraction {
-  id      Int  @id @default(autoincrement())
+  id     Int    @id @default(autoincrement())
   /// Legacy x_attractions.id — re-running the import updates instead of
   /// duplicating, and a row can be traced to where it came from.
-  odooId  Int? @unique @map("odoo_id")
-  name    String
+  odooId Int?   @unique @map("odoo_id")
+  name   String
 
   latitude   Float?
   longitude  Float?
@@ -666,10 +746,10 @@ model ResidenceDistance {
 
   /// What is actually displayed. Kept even when `attractionId` is set, so
   /// removing a place from the catalogue changes nothing a guest sees.
-  placeName   String    @map("place_name")
-  distance    String? // free text, e.g. "۷ کیلومتر"
-  eta         String? // free text, e.g. "۱ ساعت و ۲۹ دقیقه"
-  sortOrder   Int       @default(0) @map("sort_order")
+  placeName String  @map("place_name")
+  distance  String? // free text, e.g. "۷ کیلومتر"
+  eta       String? // free text, e.g. "۱ ساعت و ۲۹ دقیقه"
+  sortOrder Int     @default(0) @map("sort_order")
 
   @@index([residenceId])
   @@index([attractionId])
@@ -694,14 +774,14 @@ model ResidenceImage {
   id          Int       @id @default(autoincrement())
   residenceId Int       @map("residence_id")
   residence   Residence @relation(fields: [residenceId], references: [id], onDelete: Cascade)
-  url   String
-  title String?
+  url         String
+  title       String?
   /// متن جایگزین — what a screen reader says and what Google indexes when the
   /// file will not load. Separate from `title`: the title is the caption a
   /// visitor reads, the alt is the description of the picture itself.
-  alt       String?
-  sortOrder Int     @default(0) @map("sort_order")
-  isMain    Boolean @default(false) @map("is_main")
+  alt         String?
+  sortOrder   Int       @default(0) @map("sort_order")
+  isMain      Boolean   @default(false) @map("is_main")
   createdAt   DateTime  @default(now())
 
   @@index([residenceId])
@@ -858,12 +938,12 @@ model Reservation {
   /// The money as it was decided at cancellation time, stored rather than
   /// recomputed: the ladder depends on how long before the stay it happened,
   /// and that answer changes every hour it is asked again.
-  cancelPenalty     Float? @map("cancel_penalty")
-  cancelRefund      Float? @map("cancel_refund")
-  cancelHostShare   Float? @map("cancel_host_share")
-  cancelSiteShare   Float? @map("cancel_site_share")
+  cancelPenalty   Float?  @map("cancel_penalty")
+  cancelRefund    Float?  @map("cancel_refund")
+  cancelHostShare Float?  @map("cancel_host_share")
+  cancelSiteShare Float?  @map("cancel_site_share")
   /// Which band of the policy was applied, for the record and the receipt.
-  cancelBand        String? @map("cancel_band")
+  cancelBand      String? @map("cancel_band")
 
   cancelledAt   DateTime? @map("cancelled_at")
   cancelledById Int?      @map("cancelled_by_id")

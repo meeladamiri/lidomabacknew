@@ -649,6 +649,13 @@ export async function bulkCopyResidences(ids: number[]) {
       // so they're re-applied below via `?? undefined`
       extraRules,
       boomgardiFeatures,
+      // A copy is a fresh draft — none of the source's review/suspension
+      // state belongs on it, so these are dropped rather than carried over.
+      pendingChanges: _pendingChanges,
+      pendingChangesSubmittedAt: _pendingChangesSubmittedAt,
+      suspendedAt: _suspendedAt,
+      suspensionInternalNote: _suspensionInternalNote,
+      suspensionReason: _suspensionReason,
       ...fields
     } = src;
     await prisma.residence.create({

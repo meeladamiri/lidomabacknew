@@ -169,7 +169,7 @@ export async function listTransactions(
     where: { walletId: wallet.id, ...(opts.cursor ? { id: { lt: opts.cursor } } : {}) },
     orderBy: { id: "desc" },
     take: take + 1,
-    include: { reservation: { select: { reference: true } } },
+    include: { reservation: { select: { id: true, reference: true } } },
   });
 
   const items = rows.slice(0, take);
@@ -183,6 +183,7 @@ export async function listTransactions(
       description: t.description,
       failure_reason: t.failureReason,
       reserve_code: t.reservation?.reference ?? null,
+      reservation_id: t.reservation?.id ?? null,
       created_at: t.createdAt.toISOString(),
     })),
     next_cursor: rows.length > take ? items[items.length - 1]!.id : null,

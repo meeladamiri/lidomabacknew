@@ -100,14 +100,27 @@ router.post(
 /** One user's wallet, for the user detail page. */
 router.get(
   "/users/:userId",
-  validate(z.object({ params: z.object({ userId: z.coerce.number().int().positive() }) })),
+  validate(
+    z.object({
+      params: z.object({ userId: z.coerce.number().int().positive() }),
+      query: z.object({
+        cursor: z.coerce.number().int().positive().optional(),
+        take: z.coerce.number().int().min(1).max(50).optional(),
+      }),
+    })
+  ),
   asyncHandler(async (req, res) => {
     const { userId } = req.params as unknown as { userId: number };
+    const { cursor, take } = req.query as unknown as { cursor?: number; take?: number };
     const [summary, transactions] = await Promise.all([
       wallet.summary(userId),
-      wallet.listTransactions(userId, { take: 50 }),
+      wallet.listTransactions(userId, { cursor, take: take ?? 20 }),
     ]);
-    return ok(res, { ...summary, transactions: transactions.items });
+    return ok(res, {
+      ...summary,
+      transactions: transactions.items,
+      next_cursor: transactions.next_cursor,
+    });
   })
 );
 

@@ -9,13 +9,12 @@ function actor(req: Request) {
 
 export async function list(req: Request, res: Response) {
   const { userId } = actor(req);
-  const { type, archived, cursor, take } = req.query as unknown as {
+  const { type, cursor, take } = req.query as unknown as {
     type?: "BOOKING" | "SUPPORT";
-    archived?: boolean;
     cursor?: number;
     take?: number;
   };
-  return ok(res, await service.listConversations(userId, { type, archived, cursor, take }));
+  return ok(res, await service.listConversations(userId, { type, cursor, take }));
 }
 
 export async function unreadCount(req: Request, res: Response) {

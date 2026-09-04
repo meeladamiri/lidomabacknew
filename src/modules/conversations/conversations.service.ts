@@ -296,6 +296,21 @@ export interface SendMessageInput {
  */
 export async function sendMessage(input: SendMessageInput) {
   const type = input.type ?? "TEXT";
+
+  // A guest or host cannot write into a conversation once its reservation is
+  // cancelled — `appendSystemMessage`'s own BOOKING_CANCELLED notice is
+  // exactly how the thread says so. SYSTEM and INTERNAL_NOTE are exempt:
+  // they are how that notice, and an admin's own note, still get in.
+  if (type !== "SYSTEM" && type !== "INTERNAL_NOTE") {
+    const conversation = await prisma.conversation.findUnique({
+      where: { id: input.conversationId },
+      select: { type: true, booking: { select: { state: true } } },
+    });
+    if (conversation?.type === "BOOKING" && conversation.booking?.state === "CANCEL") {
+      throw AppError.badRequest("این رزرو لغو شده و ارسال پیام در این گفتگو ممکن نیست");
+    }
+  }
+
   const body = type === "SYSTEM" ? input.body : normalizeBody(input.body);
 
   if (!body && !input.attachment) throw AppError.badRequest("متن پیام خالی است");
@@ -347,8 +362,10 @@ export async function sendMessage(input: SendMessageInput) {
     });
 
     // An internal note is invisible to the user, so it must not light up
-    // their unread badge.
-    if (type !== "INTERNAL_NOTE") {
+    // their unread badge — and a system notice (booking approved, cancelled,
+    // …) is told to both sides by the reservation itself changing state,
+    // not something to be "unread" the way a person's message is.
+    if (type !== "INTERNAL_NOTE" && type !== "SYSTEM") {
       await tx.conversationParticipant.updateMany({
         where: {
           conversationId: input.conversationId,
@@ -419,9 +436,17 @@ async function fanOut(conversationId: number, message: ReturnType<typeof toMessa
  */
 export async function listConversations(
   userId: number,
-  opts: { type?: ConversationType; archived?: boolean; take?: number; cursor?: number } = {}
+  opts: { type?: ConversationType; take?: number; cursor?: number } = {}
 ) {
   const take = Math.min(opts.take ?? 20, 50);
+
+  // A stay's chat matters exactly as long as the stay does, whatever state
+  // the reservation ends up in (see sendMessage's own CANCEL guard for how a
+  // cancelled one is handled — it stays visible, just read-only) — and stops
+  // earning a place in the list the day after checkout. SUPPORT has no
+  // booking, so it is never touched by this.
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
 
   const rows = await prisma.conversationParticipant.findMany({
     where: {
@@ -429,7 +454,7 @@ export async function listConversations(
       leftAt: null,
       conversation: {
         ...(opts.type ? { type: opts.type } : {}),
-        ...(opts.archived ? { status: "CLOSED" } : { status: { not: "CLOSED" } }),
+        OR: [{ type: { not: "BOOKING" } }, { booking: { endDate: { gte: today } } }],
       },
     },
     select: {

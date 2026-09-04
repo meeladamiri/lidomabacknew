@@ -8,10 +8,6 @@ const publicIdParam = z.object({
 export const listConversationsSchema = z.object({
   query: z.object({
     type: z.enum(["BOOKING", "SUPPORT"]).optional(),
-    archived: z
-      .enum(["0", "1", "true", "false"])
-      .optional()
-      .transform((v) => v === "1" || v === "true"),
     cursor: z.coerce.number().int().positive().optional(),
     take: z.coerce.number().int().min(1).max(50).optional(),
   }),

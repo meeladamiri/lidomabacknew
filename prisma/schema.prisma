@@ -881,6 +881,12 @@ model Reservation {
   //   hostShare        مقدار اصلی سهم میزبان — totalAmount − websiteShare − vatAmount
   //   settledAmount    مبلغ تسویه شده        — how much of hostShare has been sent
   totalAmount     Float  @map("total_amount")
+  // Itemized snapshot of how totalAmount was priced (weekday/weekend/peak/
+  // special night counts+totals, extra-guest total, discount) — a
+  // StayBreakdownSummary from pricing.ts. Null on reservations created
+  // before this column existed; the guest invoice falls back to a single
+  // folded line for those instead of guessing at history from today's rates.
+  priceBreakdown  Json?  @map("price_breakdown")
   paidAmount      Float  @default(0) @map("paid_amount")
   remainingAmount Float  @default(0) @map("remaining_amount")
   hostShare       Float? @map("host_share")

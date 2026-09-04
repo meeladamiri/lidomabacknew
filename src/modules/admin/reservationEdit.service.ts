@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { AppError } from "@/lib/errors";
-import { calculateStayPrice } from "@/modules/reservations/pricing";
+import { calculateStayPrice, summarizeBreakdown } from "@/modules/reservations/pricing";
+import { Prisma } from "@prisma/client";
 import { releaseCalendarDays } from "@/modules/reservations/reservations.service";
 import * as activity from "@/modules/activity/activity.service";
 
@@ -357,6 +358,7 @@ export async function updateStay(input: {
         guestsCount,
         extraGuestsCount,
         totalAmount: pricing.totalAmount,
+        priceBreakdown: summarizeBreakdown(pricing, extraGuestsCount) as unknown as Prisma.InputJsonValue,
         websiteShare,
         vatAmount,
         guestCommission,

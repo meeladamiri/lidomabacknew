@@ -4,14 +4,14 @@ import { AppError } from "@/lib/errors";
 import { onReservationCreated, onReservationStateChanged } from "@/modules/conversations/bookingHooks";
 import * as notify from "@/modules/notifications/events";
 import { nextReservationReference } from "@/utils/reference";
-import { calculateStayPrice } from "./pricing";
+import { calculateStayPrice, summarizeBreakdown } from "./pricing";
 import {
   computeBreakdown,
   deadlineIn,
   getSettings,
   ratesForHost,
 } from "@/modules/settings/reservationSettings.service";
-import { resolvePublicResidenceId } from "@/lib/publicId";
+import { publicResidenceId, resolvePublicResidenceId } from "@/lib/publicId";
 
 export const RESERVATION_INCLUDE = {
   residence: {
@@ -207,6 +207,7 @@ export async function createReservation(
   // settings rather than two that could differ.
   const rates = await ratesForHost(residence.hostId);
   const money = computeBreakdown(pricing.totalAmount, rates);
+  const priceBreakdown = summarizeBreakdown(pricing, data.extraGuestsCount ?? 0);
 
   const reservation = await prisma.$transaction(
     async (tx: Prisma.TransactionClient) => {
@@ -242,6 +243,7 @@ export async function createReservation(
           guestsCount: data.guestsCount,
           extraGuestsCount: data.extraGuestsCount ?? 0,
           totalAmount: pricing.totalAmount,
+          priceBreakdown: priceBreakdown as unknown as Prisma.InputJsonValue,
           websiteShare: money.websiteShare,
           vatAmount: money.vatAmount,
           guestCommission: money.guestCommission,
@@ -397,8 +399,27 @@ async function getOwnedReservation(
   return reservation;
 }
 
+/**
+ * The reservation, with its residence addressed by the public id.
+ *
+ * `getOwnedReservation` returns the raw row — `residence.id` is the internal
+ * primary key, which is what every other caller of that function needs (it
+ * feeds calendar releases, ownership checks, cancellation math). This is the
+ * one caller building a payload a browser reads: the "نام اقامتگاه" link on
+ * both the guest's and the host's reservation-detail page built its href from
+ * that same internal id, and for any residence migrated from Odoo — nearly
+ * all of them — that id is not its address. `resolvePublicResidenceId`
+ * explains why precisely: an internal id that happens to equal some *other*
+ * residence's Odoo code links to that other residence; one that does not
+ * still 404s, because a migrated residence's real public address is its Odoo
+ * id, not its row id.
+ */
 export async function getReservationDetail(userId: number, id: number) {
-  return getOwnedReservation(userId, id, "either");
+  const reservation = await getOwnedReservation(userId, id, "either");
+  return {
+    ...reservation,
+    residence: { ...reservation.residence, id: publicResidenceId(reservation.residence) },
+  };
 }
 
 export async function releaseCalendarDays(

@@ -84,6 +84,72 @@ export function calculateStayPrice(input: StayPricingInput): StayPricingResult {
   };
 }
 
+export interface StayBreakdownSummary {
+  weekdayNights: number;
+  weekdayTotal: number;
+  weekendNights: number;
+  weekendTotal: number;
+  peakNights: number;
+  peakTotal: number;
+  specialNights: number;
+  specialTotal: number;
+  extraGuests: number;
+  extraGuestsTotal: number;
+  discountPercent: number;
+  discountAmount: number;
+}
+
+/**
+ * Buckets a priced stay's nights into the categories the guest-facing invoice
+ * and the admin panel both show. `isSpecial` wins the unit price in
+ * `calculateStayPrice` regardless of `isPeak`/`isWeekend`, so it takes the
+ * same precedence here — a night is exactly one of special/peak/weekend/weekday.
+ */
+export function summarizeBreakdown(
+  pricing: StayPricingResult,
+  extraGuestsCount: number
+): StayBreakdownSummary {
+  let weekdayNights = 0,
+    weekdayTotal = 0,
+    weekendNights = 0,
+    weekendTotal = 0,
+    peakNights = 0,
+    peakTotal = 0,
+    specialNights = 0,
+    specialTotal = 0;
+
+  for (const night of pricing.nightlyBreakdown) {
+    if (night.isSpecial) {
+      specialNights++;
+      specialTotal += night.unitPrice;
+    } else if (night.isPeak) {
+      peakNights++;
+      peakTotal += night.unitPrice;
+    } else if (night.isWeekend) {
+      weekendNights++;
+      weekendTotal += night.unitPrice;
+    } else {
+      weekdayNights++;
+      weekdayTotal += night.unitPrice;
+    }
+  }
+
+  return {
+    weekdayNights,
+    weekdayTotal: Math.round(weekdayTotal),
+    weekendNights,
+    weekendTotal: Math.round(weekendTotal),
+    peakNights,
+    peakTotal: Math.round(peakTotal),
+    specialNights,
+    specialTotal: Math.round(specialTotal),
+    extraGuests: extraGuestsCount,
+    extraGuestsTotal: Math.round(pricing.extraGuestsTotal),
+    discountPercent: pricing.discountPercent,
+    discountAmount: Math.round(pricing.discountAmount),
+  };
+}
+
 export type ResidencePricingFields = Prisma.ResidenceGetPayload<{
   select: {
     weekPrice: true;

@@ -14,6 +14,9 @@ import { getStats } from "./residenceStats.service";
 import * as attractions from "./attractions.service";
 import * as announcements from "./announcements.service";
 import * as reviews from "./reviews.service";
+import * as defects from "./residenceDefects.service";
+import * as pendingChanges from "./residencePendingChanges.service";
+import * as suspension from "./residenceSuspension.service";
 import { sendReviewApprovedMessage } from "./reviewMessages";
 import { prisma } from "@/lib/prisma";
 import { upload, fileToUrl, deleteStoredFile } from "@/middleware/upload";
@@ -364,6 +367,121 @@ router.get(
     });
     if (!residence) throw AppError.notFound("اقامتگاه پیدا نشد");
     return ok(res, residence);
+  })
+);
+
+// ---------------------------------------------------------------- نقص‌ها
+
+const defectSectionEnum = z.enum([
+  "DETAILS",
+  "SPECS",
+  "LOCATION",
+  "CAPACITY",
+  "AMENITIES",
+  "PRICING",
+  "GALLERY",
+  "DOCUMENTS",
+  "RULES",
+  "OTHER",
+]);
+
+router.get(
+  "/residences/:id/defects",
+  validate(z.object({ params: idParam })),
+  asyncHandler(async (req, res) => {
+    const { id } = req.params as unknown as { id: number };
+    return ok(res, await defects.listForResidence(id));
+  })
+);
+
+router.post(
+  "/residences/:id/defects",
+  validate(
+    z.object({
+      params: idParam,
+      body: z.object({
+        section: defectSectionEnum,
+        severity: z.enum(["MANDATORY", "SUGGESTED"]),
+        description: z.string().trim().min(3).max(1000),
+      }),
+    })
+  ),
+  asyncHandler(async (req, res) => {
+    const { id } = req.params as unknown as { id: number };
+    const body = req.body as {
+      section: z.infer<typeof defectSectionEnum>;
+      severity: "MANDATORY" | "SUGGESTED";
+      description: string;
+    };
+    return ok(res, await defects.report({ residenceId: id, ...body, actorId: req.user!.sub }));
+  })
+);
+
+router.post(
+  "/defects/:defectId/resolve",
+  validate(z.object({ params: z.object({ defectId: z.coerce.number().int().positive() }) })),
+  asyncHandler(async (req, res) => {
+    const { defectId } = req.params as unknown as { defectId: number };
+    return ok(res, await defects.resolve(defectId, req.user!.sub));
+  })
+);
+
+// -------------------------------------------------- ویرایش در انتظار بررسی
+
+router.post(
+  "/residences/:id/pending-changes/approve",
+  validate(z.object({ params: idParam })),
+  asyncHandler(async (req, res) => {
+    const { id } = req.params as unknown as { id: number };
+    return ok(res, await pendingChanges.approve(id, req.user!.sub));
+  })
+);
+
+router.post(
+  "/residences/:id/pending-changes/reject",
+  validate(
+    z.object({
+      params: idParam,
+      body: z.object({ reason: z.string().trim().min(3).max(500) }),
+    })
+  ),
+  asyncHandler(async (req, res) => {
+    const { id } = req.params as unknown as { id: number };
+    const { reason } = req.body as { reason: string };
+    await pendingChanges.reject(id, reason, req.user!.sub);
+    return ok(res, { success: true });
+  })
+);
+
+// -------------------------------------------------------------------- تعلیق
+
+router.post(
+  "/residences/:id/suspend",
+  validate(
+    z.object({
+      params: idParam,
+      body: z.object({
+        internalNote: z.string().trim().min(3).max(1000),
+        reason: z.string().trim().min(3).max(1000),
+      }),
+    })
+  ),
+  asyncHandler(async (req, res) => {
+    const { id } = req.params as unknown as { id: number };
+    const { internalNote, reason } = req.body as { internalNote: string; reason: string };
+    return ok(
+      res,
+      await suspension.suspend({ residenceId: id, internalNote, reason, actorId: req.user!.sub })
+    );
+  })
+);
+
+router.post(
+  "/residences/:id/unsuspend",
+  validate(z.object({ params: idParam })),
+  asyncHandler(async (req, res) => {
+    const { id } = req.params as unknown as { id: number };
+    return ok(res, await suspension.unsuspend(id, req.user!.sub));
   })
 );
 

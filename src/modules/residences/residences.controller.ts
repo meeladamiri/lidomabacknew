@@ -32,6 +32,15 @@ export async function getDetail(req: Request, res: Response) {
   return ok(res, data);
 }
 
+/** Cheap check for /rentals/<id>'s getServerSideProps — call before the full
+ * detail fetch, so a deleted or deactivated listing's page never pays for
+ * that heavier query only to throw it away and redirect anyway. */
+export async function getRedirect(req: Request, res: Response) {
+  const id = Number(req.params.id);
+  const redirect = await service.getResidenceRedirect(id);
+  return ok(res, { redirect });
+}
+
 export async function hostProfile(req: Request, res: Response) {
   const hostId = Number(req.params.hostId);
   const data = await cached(`residence:host:${hostId}`, TTL.residence, () =>

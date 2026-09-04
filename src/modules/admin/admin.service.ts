@@ -798,6 +798,7 @@ export async function getResidence(id: number) {
       rooms: true,
       amenities: { include: { amenity: { include: { features: true } } } },
       rules: { include: { rule: true } },
+      defects: { orderBy: { createdAt: "desc" } },
       _count: { select: { reservations: true, reviews: true } },
     },
   });
@@ -881,7 +882,7 @@ export async function setResidenceState(
 
   const deactivating = state === "DEACTIVATED";
 
-  const updated = await prisma.residence.update({
+  await prisma.residence.update({
     where: { id },
     data: {
       state,
@@ -890,6 +891,14 @@ export async function setResidenceState(
       deactivationNote: deactivating ? options.note : null,
     },
   });
+
+  // Setting `published` above is only ever right when nothing else is
+  // holding this listing down — an admin re-publishing one that still has
+  // an open MANDATORY defect, or is suspended, should not un-hide it.
+  const updated =
+    state === "PUBLISHED"
+      ? await residencesService.syncPublishedFlag(id)
+      : await prisma.residence.findUniqueOrThrow({ where: { id } });
 
   activity.log({
     kind: "STATE_CHANGE",

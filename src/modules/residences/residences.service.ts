@@ -61,18 +61,79 @@ async function buildRelatedTags(
     }));
 }
 
+/**
+ * The nearest CITY ancestor of a location, for a redirect target — a
+ * residence can sit on a neighbourhood or village row, and "شهر مربوطه" means
+ * the city those roll up into, not the row itself. `"s"` is the established
+ * no-city sentinel /search/<slug> already uses elsewhere for "no location".
+ */
+async function findCitySlugForRedirect(locationId: number | null): Promise<string> {
+  const NO_CITY = "s";
+  if (!locationId) return NO_CITY;
+
+  let current = await prisma.location.findUnique({
+    where: { id: locationId },
+    select: { type: true, titleEn: true, name: true, parentId: true },
+  });
+
+  for (let hops = 0; hops < 4 && current; hops++) {
+    if (current.type === "CITY") return current.titleEn || current.name;
+    if (!current.parentId) break;
+    current = await prisma.location.findUnique({
+      where: { id: current.parentId },
+      select: { type: true, titleEn: true, name: true, parentId: true },
+    });
+  }
+  return NO_CITY;
+}
+
+/**
+ * Whether `/rentals/<id>` should redirect instead of render, and where to.
+ *
+ * DELETED is permanent — the listing is never coming back, so this is a 301.
+ * Host-DEACTIVATED is the host's own, reversible choice to stop taking
+ * bookings — a 302, since the exact page might be exactly right again next
+ * month. Nothing else redirects: a residence that is merely unpublished for
+ * an administrative reason (suspended, an open MANDATORY defect) still has
+ * `state: PUBLISHED` and is handled by `getResidenceDetail` itself, which
+ * keeps rendering the page with the booking box hidden — see the comment
+ * there for why that one stays a 200, not a redirect.
+ */
+export async function getResidenceRedirect(
+  rawId: number
+): Promise<{ code: 301 | 302; citySlug: string } | null> {
+  const id = await resolvePublicResidenceId(rawId);
+  const residence = await prisma.residence.findUnique({
+    where: { id },
+    select: { state: true, locationId: true },
+  });
+  // Not found at all: nothing to redirect *to* — the detail endpoint's own
+  // 404 is the right answer, same as it always has been.
+  if (!residence) return null;
+
+  if (residence.state === "DELETED") {
+    return { code: 301, citySlug: await findCitySlugForRedirect(residence.locationId) };
+  }
+  if (residence.state === "DEACTIVATED") {
+    return { code: 302, citySlug: await findCitySlugForRedirect(residence.locationId) };
+  }
+  return null;
+}
+
 export async function getResidenceDetail(rawId: number) {
   // legacy-URL contract: /rentals/<id> uses the Odoo id for migrated
   // residences (see lib/publicId.ts)
   const id = await resolvePublicResidenceId(rawId);
   const residence = await prisma.residence.findFirst({
-    // DEACTIVATED is allowed through on purpose. The page keeps its URL, its
-    // photos and its reviews; only the booking box changes. A listing that is
-    // unbookable this month is not a reason for an address people have
-    // bookmarked — and that Google has indexed for years — to start 404ing.
-    // Search, sitemap and "اقامتگاه‌های مشابه" still exclude it: those answer
-    // "what can I book", and this cannot be booked.
-    where: { id, state: { in: ["PUBLISHED", "DEACTIVATED"] } },
+    // A host-deactivated listing (`state: DEACTIVATED`) is not fetched here
+    // at all any more — see `getResidenceRedirect`, which sends that URL on
+    // a 302 to the city search instead of rendering it. What *is* still
+    // fetched here is a PUBLISHED listing that is temporarily unpublished
+    // for an administrative reason (suspended, or an open MANDATORY defect):
+    // those keep the page and its URL, and only the booking box changes
+    // (`bookable` below) — nobody asked to redirect those away, and the page
+    // itself is still the accurate, current listing, just not bookable today.
+    where: { id, state: "PUBLISHED" },
     include: {
       location: { include: { parent: true } },
       images: { orderBy: { sortOrder: "asc" } },
@@ -147,7 +208,7 @@ export async function getResidenceDetail(rawId: number) {
   // new one is public the moment it is added unless something removes it. Which
   // is exactly what happened to `deactivationNote` on its first test: written
   // for the ops team ("میزبان پاسخگو نیست", "اختلاف مالی"), served to guests.
-  const { deactivationNote, ...rest } = residence;
+  const { deactivationNote, suspensionInternalNote, suspensionReason, ...rest } = residence;
 
   // A reply that has not been approved is not on the site. Dropped here rather
   // than filtered in the query, because a review with a pending reply still
@@ -164,15 +225,18 @@ export async function getResidenceDetail(rawId: number) {
     residence: publicResidence,
     // What the booking box should do. The page renders the same either way, so
     // this is the single flag the frontend branches on rather than each panel
-    // re-deriving it from `state`.
-    bookable: residence.state === "PUBLISHED",
-    unavailable:
-      residence.state === "PUBLISHED"
-        ? null
-        : {
-            // The date only. The panel says the fact, not the reason.
-            since: residence.deactivatedAt,
-          },
+    // re-deriving it from `suspendedAt`/defects. `state` is always PUBLISHED
+    // here (the query above already filtered on it) — `published` is what
+    // actually varies: false while suspended or blocked by an open
+    // MANDATORY defect.
+    bookable: residence.published,
+    unavailable: residence.published
+      ? null
+      : {
+          // The reason is deliberately not included — `suspensionReason` is
+          // for the host's own dashboard, not a public page.
+          since: residence.suspendedAt,
+        },
     // legacy-URL contract for links + the displayed "کد آگهی"
     publicId: publicResidenceId(residence),
     similar: similar.map((s) => ({ ...s, id: publicResidenceId(s), roomsCount: s.rooms.length })),
@@ -242,14 +306,22 @@ export async function getRuleCatalog() {
 // ---------- Host: listing management ----------
 
 export async function listHostResidences(hostId: number) {
-  return prisma.residence.findMany({
-    where: { hostId },
+  const rows = await prisma.residence.findMany({
+    where: { hostId, state: { not: "DELETED" } },
     include: {
       images: { take: 1, orderBy: { sortOrder: "asc" } },
       rooms: { select: { id: true, name: true } },
+      // Only what the host-panel tabs need to bucket a listing — every open
+      // defect's severity/reviewRequestedAt, not the full row.
+      defects: {
+        where: { resolvedAt: null },
+        select: { severity: true, reviewRequestedAt: true },
+      },
     },
     orderBy: { createdAt: "desc" },
   });
+  // suspensionInternalNote is the ops team's own note, not the host's.
+  return rows.map(({ suspensionInternalNote: _internal, ...r }) => r);
 }
 
 // Reservation-derived stats only — there's no reviews table yet (Phase 2),
@@ -326,10 +398,15 @@ export async function getHostResidenceFull(hostId: number, id: number) {
       rooms: true,
       amenities: { include: { amenity: true } },
       rules: { include: { rule: true } },
+      defects: { orderBy: { createdAt: "desc" } },
     },
   });
   if (!residence) throw AppError.notFound("اقامتگاه یافت نشد یا متعلق به شما نیست");
-  return residence;
+  // `suspensionInternalNote` is the ops team's own note, not the host's —
+  // `suspensionReason` (what the host is actually told) stays on the object.
+  // No `omit` in this Prisma version, so it's stripped here instead.
+  const { suspensionInternalNote: _internal, ...safe } = residence;
+  return safe;
 }
 
 async function assertOwnership(hostId: number, residenceId: number) {
@@ -389,6 +466,39 @@ function stepPatch(
   if (step === undefined) return {};
   const next = Math.max(current ?? 0, step);
   return { step: next, completionPercent: Math.round((next / WIZARD_STEP_COUNT) * 100) };
+}
+
+/**
+ * The live-edit review gate. Lives here, not inside `updateSpecs` /
+ * `updateAmenities` / etc. themselves, so approval can call those functions
+ * directly to actually apply a stored change without them re-queueing their
+ * own replay — the gate only ever runs from the host-facing controller path.
+ *
+ * Merges into whatever `pendingChanges` already holds under `stepKey` rather
+ * than replacing the object outright, so editing step 4 and then step 6
+ * before an admin reaches either queues both instead of the second silently
+ * discarding the first. Returns `false` (nothing queued, caller should write
+ * normally) for anything that isn't PUBLISHED — a draft or a rejected
+ * listing has no live version a guest could be shown mid-edit.
+ */
+export async function queuePendingChange(
+  hostId: number,
+  id: number,
+  stepKey: string,
+  payload: unknown
+): Promise<boolean> {
+  const residence = await assertOwnership(hostId, id);
+  if (residence.state !== "PUBLISHED") return false;
+
+  const existing = (residence.pendingChanges as Record<string, unknown> | null) ?? {};
+  await prisma.residence.update({
+    where: { id },
+    data: {
+      pendingChanges: { ...existing, [stepKey]: payload } as Prisma.InputJsonValue,
+      pendingChangesSubmittedAt: new Date(),
+    },
+  });
+  return true;
 }
 
 export async function updateSpecs(
@@ -559,6 +669,42 @@ export async function updateCapacity(
   });
 }
 
+/**
+ * The one place `published` is decided, once `state` is already PUBLISHED.
+ *
+ * Three independent things can each force a published listing dark —
+ * suspension, an open MANDATORY defect, or the host's own switch — and each
+ * is set/cleared by different code (admin suspend/unsuspend, defect
+ * report/resolve, `changeResidenceState`'s "activate"). Every one of those
+ * call sites ends here instead of writing `published` itself, so re-checking
+ * one blocker can never accidentally clear a *different* one that is still
+ * in effect.
+ *
+ * Does nothing when `state` isn't PUBLISHED — a draft, a rejected listing, a
+ * host-deactivated one, all keep whatever `published` their own state
+ * transition already set, which this has no opinion about.
+ */
+export async function syncPublishedFlag(residenceId: number) {
+  const current = await prisma.residence.findUniqueOrThrow({
+    where: { id: residenceId },
+    select: { state: true, suspendedAt: true },
+  });
+
+  if (current.state === "PUBLISHED") {
+    const hasOpenMandatoryDefect =
+      (await prisma.residenceDefect.count({
+        where: { residenceId, severity: "MANDATORY", resolvedAt: null },
+      })) > 0;
+
+    await prisma.residence.update({
+      where: { id: residenceId },
+      data: { published: !current.suspendedAt && !hasOpenMandatoryDefect },
+    });
+  }
+
+  return prisma.residence.findUniqueOrThrow({ where: { id: residenceId } });
+}
+
 export async function changeResidenceState(
   hostId: number,
   id: number,
@@ -573,7 +719,8 @@ export async function changeResidenceState(
     delete: "DELETED",
     submit: "PENDING",
   } as const;
-  return prisma.residence.update({
+
+  await prisma.residence.update({
     where: { id },
     data: {
       state: stateMap[action],
@@ -581,6 +728,28 @@ export async function changeResidenceState(
       ...advance,
     },
   });
+
+  // "Activate" is a request, not an override — suspension or an open
+  // mandatory defect still wins, same as it would for an admin action.
+  return action === "activate"
+    ? syncPublishedFlag(id)
+    : prisma.residence.findUniqueOrThrow({ where: { id } });
+}
+
+/** Bulk-marks every open defect ready for another look — the host's
+ * «درخواست بررسی مجدد» button. Moves the listing into «در انتظار بررسی»
+ * without touching «دارای نقص»'s own signal (a still-unresolved defect the
+ * host hasn't acted on) until an admin actually looks again. */
+export async function requestDefectReview(hostId: number, residenceId: number) {
+  await assertOwnership(hostId, residenceId);
+  const { count } = await prisma.residenceDefect.updateMany({
+    where: { residenceId, resolvedAt: null, reviewRequestedAt: null },
+    data: { reviewRequestedAt: new Date() },
+  });
+  if (count === 0) {
+    throw AppError.badRequest("هیچ نقص برطرف‌نشده‌ای برای این اقامتگاه ثبت نشده است");
+  }
+  return { requested: count };
 }
 
 // ---------- Host: rooms ----------

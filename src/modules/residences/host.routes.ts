@@ -95,4 +95,11 @@ router.post(
   asyncHandler(controller.updateDocuments)
 );
 
+/** «درخواست بررسی مجدد» — bulk-marks every open defect ready for another look. */
+router.post(
+  "/:id/defects/request-review",
+  validate(residenceIdParamSchema),
+  asyncHandler(controller.requestDefectReview)
+);
+
 export default router;

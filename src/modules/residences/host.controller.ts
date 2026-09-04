@@ -68,39 +68,70 @@ export async function create(req: Request, res: Response) {
   return created(res, data);
 }
 
+/**
+ * «در انتظار بررسی» — an edit to an already-published listing's content
+ * fields waits for an admin instead of landing straight on the live row.
+ * `queuePendingChange` is a no-op (returns false) for anything not
+ * PUBLISHED, so a draft still saves normally step by step.
+ */
+function queueForReview(req: Request, stepKey: string, payload: unknown) {
+  return service.queuePendingChange(hostId(req), Number(req.params.id), stepKey, payload);
+}
+
 export async function updateSpecs(req: Request, res: Response) {
+  if (await queueForReview(req, "specs", req.body)) {
+    return ok(res, { queuedForReview: true });
+  }
   const data = await service.updateSpecs(hostId(req), Number(req.params.id), req.body);
   return ok(res, data);
 }
 
 export async function updateAmenities(req: Request, res: Response) {
-  const data = await service.updateAmenities(
-    hostId(req),
-    Number(req.params.id),
-    req.body.amenities,
-    req.body.other,
-    req.body.step,
+  const payload = {
+    amenities: req.body.amenities,
+    other: req.body.other,
+    step: req.body.step,
     // Without this the service takes its unscoped path and deletes every
     // amenity on the listing — including «نوع اقامتگاه» and «منطقه اقامتگاه»,
     // which step one writes and the SEO tag engine reads. The schema accepted
     // the field and the service honoured it; only this hand-off was missing,
     // so step one silently emptied itself every time a host opened step five.
-    req.body.scopeIds
+    scopeIds: req.body.scopeIds,
+  };
+  if (await queueForReview(req, "amenities", payload)) {
+    return ok(res, { queuedForReview: true });
+  }
+  const data = await service.updateAmenities(
+    hostId(req),
+    Number(req.params.id),
+    payload.amenities,
+    payload.other,
+    payload.step,
+    payload.scopeIds
   );
   return ok(res, data);
 }
 
 export async function updateRules(req: Request, res: Response) {
+  if (await queueForReview(req, "rules", req.body)) {
+    return ok(res, { queuedForReview: true });
+  }
   const data = await service.updateRules(hostId(req), Number(req.params.id), req.body);
   return ok(res, data);
 }
 
 export async function updatePricing(req: Request, res: Response) {
+  if (await queueForReview(req, "pricing", req.body)) {
+    return ok(res, { queuedForReview: true });
+  }
   const data = await service.updatePricing(hostId(req), Number(req.params.id), req.body);
   return ok(res, data);
 }
 
 export async function updateCapacity(req: Request, res: Response) {
+  if (await queueForReview(req, "capacity", req.body)) {
+    return ok(res, { queuedForReview: true });
+  }
   const data = await service.updateCapacity(hostId(req), Number(req.params.id), req.body);
   return ok(res, data);
 }
@@ -178,4 +209,9 @@ export async function deleteImage(req: Request, res: Response) {
 export async function reorderImages(req: Request, res: Response) {
   await service.reorderImages(hostId(req), Number(req.params.id), req.body.imageIds, req.body.step);
   return ok(res, { success: true });
+}
+
+export async function requestDefectReview(req: Request, res: Response) {
+  const data = await service.requestDefectReview(hostId(req), Number(req.params.id));
+  return ok(res, data);
 }

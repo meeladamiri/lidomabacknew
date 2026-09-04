@@ -24,6 +24,7 @@ import { guestReservationRoutes, hostReservationRoutes } from "@/modules/reserva
 import adminRoutes from "@/modules/admin/admin.routes";
 import seoRoutes from "@/modules/seo/seo.routes";
 import homeRoutes from "@/modules/home/home.routes";
+import faqPublicRoutes from "@/modules/seo/faqPublic.routes";
 import conversationRoutes from "@/modules/conversations/conversations.routes";
 import notificationRoutes from "@/modules/notifications/notifications.routes";
 import walletRoutes from "@/modules/wallet/wallet.routes";
@@ -63,6 +64,7 @@ export function buildApp() {
 
   app.use("/api/auth", authRoutes);
   app.use("/api/home", homeRoutes);
+  app.use("/api/faqs", faqPublicRoutes);
   app.use("/api/search", searchRoutes);
   app.use("/api/residences", residencesRoutes);
   app.use("/api/residences", publicCalendarRoutes); // GET /:id/calendar

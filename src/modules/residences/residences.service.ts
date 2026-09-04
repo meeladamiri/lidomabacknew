@@ -340,21 +340,32 @@ async function assertOwnership(hostId: number, residenceId: number) {
   return residence;
 }
 
+/**
+ * A user's first residence is also the moment they become a host — nothing
+ * else in the submission wizard sets `isHost`, and this is the first row that
+ * actually justifies the flag. `updateMany` with `isHost: false` in the
+ * `where` skips the write (and the pointless activity) for anyone who already
+ * carries it.
+ */
 export async function createResidence(
   hostId: number,
   data: { type: ResidenceType; name?: string; cityId?: number }
 ) {
-  return prisma.residence.create({
-    data: {
-      hostId,
-      type: data.type,
-      name: data.name || "اقامتگاه بدون نام", // wizard fills the real name in a later step
-      locationId: data.cityId,
-      reference: generateReference("RES-"),
-      state: "DRAFT",
-      step: 1,
-    },
-  });
+  const [residence] = await prisma.$transaction([
+    prisma.residence.create({
+      data: {
+        hostId,
+        type: data.type,
+        name: data.name || "اقامتگاه بدون نام", // wizard fills the real name in a later step
+        locationId: data.cityId,
+        reference: generateReference("RES-"),
+        state: "DRAFT",
+        step: 1,
+      },
+    }),
+    prisma.user.updateMany({ where: { id: hostId, isHost: false }, data: { isHost: true } }),
+  ]);
+  return residence;
 }
 
 const WIZARD_STEP_COUNT = 14;

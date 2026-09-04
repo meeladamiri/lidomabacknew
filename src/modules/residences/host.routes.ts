@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { asyncHandler } from "@/middleware/asyncHandler";
 import { validate } from "@/middleware/validate";
-import { requireAuth, requireHost } from "@/middleware/auth";
+import { requireAuth } from "@/middleware/auth";
 import { requireUploadStorage, upload } from "@/middleware/upload";
 import {
   changeStateSchema,
@@ -23,7 +23,24 @@ import { classificationBodySchema } from "./residences.schema";
 
 const router = Router();
 
-router.use(requireAuth, requireHost);
+/**
+ * Not `requireHost`.
+ *
+ * This router is also the submission wizard a guest uses to become a host —
+ * `classification-options` and `POST /` (the draft this is all keyed by) are
+ * its very first screen, reached before the user's access token has ever had
+ * `isHost: true` in it. Gating the whole router on that flag meant nobody
+ * could ever pass through it for the first time: `POST /api/users/me` can
+ * flip the DB column, but nothing re-mints the token that already sits in
+ * the browser, so the very next call here would still 403.
+ *
+ * Every handler below scopes by `hostId: req.user.sub` on its own
+ * (`getHostResidenceFull`, `createResidence`, …) — that ownership check is
+ * the actual authorization, and it does not depend on the flag. `isHost` is
+ * flipped in `createResidence` itself, the moment a user's first residence
+ * exists, rather than gating the door to creating it.
+ */
+router.use(requireAuth);
 
 router.get("/", asyncHandler(controller.list));
 router.post("/", validate(createResidenceSchema), asyncHandler(controller.create));

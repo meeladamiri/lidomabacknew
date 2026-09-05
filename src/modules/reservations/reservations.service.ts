@@ -444,9 +444,20 @@ export async function getReservationDetail(userId: number, id: number) {
   const role: "guest" | "host" = reservation.guestId === userId ? "guest" : "host";
   const faqPath = reservationFaqPath(reservation.state, role);
 
+  // «چت با مهمان» on both detail screens used to link to /chats?c=<reservation
+  // id>. A conversation is addressed by its publicId, so that number named no
+  // thread at all — the link opened an empty chat. The thread is created with
+  // the booking (see conversations/bookingHooks), so this is a lookup, never
+  // a create: a GET should not bring a conversation into being.
+  const conversation = await prisma.conversation.findUnique({
+    where: { bookingId: id },
+    select: { publicId: true },
+  });
+
   return {
     ...reservation,
     residence: { ...reservation.residence, id: publicResidenceId(reservation.residence) },
+    conversationPublicId: conversation?.publicId ?? null,
     faqs: faqPath ? await getFaqsForPage({ kind: "page", path: faqPath }) : [],
   };
 }

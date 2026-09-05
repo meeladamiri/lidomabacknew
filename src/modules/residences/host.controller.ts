@@ -132,6 +132,28 @@ export async function updateCapacity(req: Request, res: Response) {
   return ok(res, data);
 }
 
+/**
+ * «رزرو آنی» — its own route, deliberately not part of specs.
+ *
+ * `isFast` lives on the residence row, so it was reachable only through
+ * `PATCH /:id`, which is review-gated: on a published listing the flag would
+ * have been parked in `pendingChanges` waiting for an admin, and the response
+ * would have been `{ queuedForReview: true }` rather than the listing. A
+ * switch wired to that reads as broken — it snaps back, and nothing tells the
+ * host their booking policy is sitting in a queue.
+ *
+ * It is not a content field. Whether a booking needs the host's approval is
+ * an operational setting like pricing and capacity, and those already apply
+ * straight away for the same reason: nobody needs to review a host's own
+ * decision about their own availability.
+ */
+export async function updateInstantBooking(req: Request, res: Response) {
+  const data = await service.updateSpecs(hostId(req), Number(req.params.id), {
+    isFast: req.body.isFast,
+  });
+  return ok(res, data);
+}
+
 export async function changeState(req: Request, res: Response) {
   const data = await service.changeResidenceState(
     hostId(req),

@@ -12,6 +12,7 @@ import {
   residenceIdParamSchema,
   updateAmenitiesSchema,
   updateCapacitySchema,
+  updateInstantBookingSchema,
   updatePricingSchema,
   updateRoomSchema,
   updateRulesSchema,
@@ -59,6 +60,11 @@ router.patch("/:id/amenities", validate(updateAmenitiesSchema), asyncHandler(con
 router.patch("/:id/rules", validate(updateRulesSchema), asyncHandler(controller.updateRules));
 router.patch("/:id/pricing", validate(updatePricingSchema), asyncHandler(controller.updatePricing));
 router.patch("/:id/capacity", validate(updateCapacitySchema), asyncHandler(controller.updateCapacity));
+router.patch(
+  "/:id/instant-booking",
+  validate(updateInstantBookingSchema),
+  asyncHandler(controller.updateInstantBooking)
+);
 router.patch("/:id/state", validate(changeStateSchema), asyncHandler(controller.changeState));
 router.get("/:id/classification", validate(residenceIdParamSchema), asyncHandler(controller.residenceClassification));
 router.patch(

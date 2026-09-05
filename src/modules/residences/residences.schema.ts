@@ -68,6 +68,13 @@ export const updateSpecsSchema = z.object({
   }),
 });
 
+/** «رزرو آنی» on its own, so it can skip the specs review gate — see
+ * `updateInstantBooking` in host.controller for why it is not content. */
+export const updateInstantBookingSchema = z.object({
+  params: z.object({ id: z.coerce.number().int() }),
+  body: z.object({ isFast: z.boolean() }),
+});
+
 export const updateAmenitiesSchema = z.object({
   params: z.object({ id: z.coerce.number().int() }),
   body: z.object({

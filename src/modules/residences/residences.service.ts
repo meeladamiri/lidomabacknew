@@ -751,6 +751,48 @@ export async function updateSpecs(
  * cannot destroy anything else — a stale page can no longer drop a field it
  * never displayed.
  */
+/**
+ * Rows in `amenities` that are not amenities.
+ *
+ * `type` and `area` are the listing's taxonomy — «نوع اقامتگاه» and
+ * «منطقه اقامتگاه» — and `rent-type` is «نوع اجاره». They sit in the same table
+ * as «حمام» and «یخچال» because Odoo kept them there, and twenty of the twenty
+ * two SEO tag conditions read them. An amenity editor has no business deleting
+ * one; see OPEN-BUGS #13 for why they still live here at all.
+ */
+const NON_AMENITY_KEYS = ["type", "area", "rent-type"];
+
+/**
+ * What to store for an amenity, given what is already stored.
+ *
+ * The answer to a catalogue amenity lives in `extra_features` as
+ * `{"value": "دارد"}`, with sub-answers under `extra`. Both editors send only
+ * the sub-answers — `value` is not a field either of them has — so writing the
+ * payload verbatim replaced `{"value":"دارد"}` with `{}` and the amenity
+ * stopped counting: the listing fell out of the search filter and off its SEO
+ * tag pages, and its classification showed empty in the wizard.
+ *
+ * So the previous object is the base and the payload is laid over it. A key the
+ * caller did not send is a key it is not speaking about, not a key it wants
+ * cleared.
+ */
+function mergeExtraFeatures(
+  previous: Prisma.JsonValue | undefined,
+  incoming: Record<string, unknown> | undefined
+): Prisma.InputJsonValue {
+  const base =
+    previous && typeof previous === "object" && !Array.isArray(previous)
+      ? { ...(previous as Record<string, unknown>) }
+      : {};
+
+  for (const [key, value] of Object.entries(incoming ?? {})) {
+    // `undefined` is "not mentioned", which is what the base already holds.
+    if (value !== undefined) base[key] = value;
+  }
+
+  return base as Prisma.InputJsonValue;
+}
+
 export async function updateAmenities(
   hostId: number,
   id: number,
@@ -761,22 +803,52 @@ export async function updateAmenities(
 ) {
   const residence = await assertOwnership(hostId, id);
   const advance = stepPatch(residence.step, step);
+  const incomingIds = amenities.map((a) => a.amenityId);
+
+  // Read once, outside the transaction: which rows must survive an edit that
+  // does not mention them. `scopeIds` narrows the delete when the caller
+  // remembers to send it, but this rule cannot depend on every caller
+  // remembering — the last time one forgot, a `PATCH /amenities` wiped the
+  // listing's classification along with the amenities.
+  const protectedIds = (
+    await prisma.amenity.findMany({
+      where: { key: { in: NON_AMENITY_KEYS } },
+      select: { id: true },
+    })
+  )
+    .map((a) => a.id)
+    .filter((amenityId) => !incomingIds.includes(amenityId));
+
   return prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     if (Object.keys(advance).length > 0) {
       await tx.residence.update({ where: { id }, data: advance });
     }
+
+    // Whatever these rows already answer, before they are deleted and rebuilt.
+    const previous = new Map(
+      (
+        await tx.residenceAmenity.findMany({
+          where: { residenceId: id, amenityId: { in: incomingIds } },
+          select: { amenityId: true, extraFeatures: true },
+        })
+      ).map((row) => [row.amenityId, row.extraFeatures])
+    );
+
+    // One `amenityId` filter per object, so the two conditions go under AND
+    // rather than the second quietly replacing the first.
+    const scope: Prisma.ResidenceAmenityWhereInput[] = [];
+    if (scopeIds) scope.push({ amenityId: { in: [...new Set([...scopeIds, ...incomingIds])] } });
+    if (protectedIds.length > 0) scope.push({ amenityId: { notIn: protectedIds } });
+
     await tx.residenceAmenity.deleteMany({
-      where: {
-        residenceId: id,
-        ...(scopeIds ? { amenityId: { in: [...new Set([...scopeIds, ...amenities.map((a) => a.amenityId)])] } } : {}),
-      },
+      where: { residenceId: id, ...(scope.length > 0 ? { AND: scope } : {}) },
     });
     if (amenities.length > 0) {
       await tx.residenceAmenity.createMany({
         data: amenities.map((a) => ({
           residenceId: id,
           amenityId: a.amenityId,
-          extraFeatures: a.extraFeatures as Prisma.InputJsonValue,
+          extraFeatures: mergeExtraFeatures(previous.get(a.amenityId), a.extraFeatures),
         })),
       });
     }

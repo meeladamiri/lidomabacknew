@@ -84,7 +84,10 @@ export const residenceListQuerySchema = z.object({
     pageSize: z.coerce.number().int().min(1).max(100).optional(),
     q: z.string().optional(),
     state: z.string().optional(),
-    tab: z.enum(["all", "suit", "boomgardi", "hotel", "pending"]).optional(),
+    // Keep in step with `ResidenceTab` in admin.service.ts — the controller
+    // casts this value rather than parsing it, so a tab missing here is a 400
+    // the type checker cannot see.
+    tab: z.enum(["all", "suit", "boomgardi", "hotel", "pending", "edited"]).optional(),
     sort: z
       .enum(["newest", "oldest", "price_asc", "price_desc", "importance", "rating"])
       .optional(),

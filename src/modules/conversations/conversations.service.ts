@@ -209,6 +209,42 @@ export async function createSupportConversation(userId: number, subject: string,
   return conversation;
 }
 
+/**
+ * A support thread the platform opens itself, because an admin decision needs
+ * to reach someone — the mirror of `createSupportConversation`, where the
+ * first message is the user writing in. Here support speaks first, so the
+ * admin is a participant from the start and the message is theirs.
+ */
+export async function openSupportThreadFromAdmin(input: {
+  userId: number;
+  adminId: number;
+  subject: string;
+  body: string;
+}) {
+  const conversation = await prisma.conversation.create({
+    data: {
+      publicId: newPublicId(),
+      type: "SUPPORT",
+      subject: input.subject.slice(0, 120),
+      participants: {
+        create: [
+          { userId: input.userId, role: "GUEST" },
+          { userId: input.adminId, role: "ADMIN" },
+        ],
+      },
+    },
+  });
+
+  await sendMessage({
+    conversationId: conversation.id,
+    senderId: input.adminId,
+    senderRole: "ADMIN",
+    body: input.body,
+  });
+
+  return conversation;
+}
+
 // ------------------------------------------------------------- messages ---
 
 export interface SystemMeta {

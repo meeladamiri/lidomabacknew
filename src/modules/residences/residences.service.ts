@@ -502,6 +502,176 @@ export async function queuePendingChange(
   return true;
 }
 
+/**
+ * The gallery's half of the same gate.
+ *
+ * Images can't ride the generic `queuePendingChange` path: a step's payload is
+ * one self-contained object, while a gallery is edited one file at a time
+ * against rows that already exist. So the proposal is kept as a diff — what to
+ * add, what to drop, what order to end up in — and, critically, **nothing
+ * proposed is ever written into `residence_images`**. Roughly twenty queries
+ * across search, sitemap, favourites, chat and the dashboards read that table
+ * without any notion of approval; a "pending" flag on the row would have to be
+ * excluded by every one of them, and the one that forgot would quietly publish
+ * an unreviewed photo. Keeping proposals out of the table entirely means the
+ * worst a mistake here can do is fail to show the host their own pending
+ * upload.
+ */
+export interface PendingGallery {
+  /** Uploaded and stored, but not yet a row. Addressed by negative id. */
+  add: { url: string; title?: string | null }[];
+  /** Live image ids the host wants gone. */
+  removeIds: number[];
+  /** Live image ids in the order the host wants them. */
+  order?: number[];
+  /** Live image id, or `add:<index>`, to become the cover. */
+  main?: number | string | null;
+}
+
+const EMPTY_GALLERY: PendingGallery = { add: [], removeIds: [] };
+
+/** A pending-add's stand-in id, so the wizard can list and remove one before
+ * it is a row. Negative to keep it clear of any real id. */
+export const pendingImageId = (index: number) => -(index + 1);
+const pendingImageIndex = (id: number) => -id - 1;
+
+async function mutateGallery(
+  hostId: number,
+  id: number,
+  mutate: (gallery: PendingGallery) => PendingGallery
+): Promise<boolean> {
+  const residence = await assertOwnership(hostId, id);
+  if (residence.state !== "PUBLISHED") return false;
+
+  const existing = (residence.pendingChanges as Record<string, unknown> | null) ?? {};
+  const gallery = mutate({
+    ...EMPTY_GALLERY,
+    ...((existing.gallery as PendingGallery | undefined) ?? {}),
+  });
+
+  await prisma.residence.update({
+    where: { id },
+    data: {
+      pendingChanges: { ...existing, gallery } as unknown as Prisma.InputJsonValue,
+      pendingChangesSubmittedAt: new Date(),
+    },
+  });
+  return true;
+}
+
+export async function getPendingGallery(hostId: number, id: number): Promise<PendingGallery> {
+  const residence = await assertOwnership(hostId, id);
+  const existing = (residence.pendingChanges as Record<string, unknown> | null) ?? {};
+  return { ...EMPTY_GALLERY, ...((existing.gallery as PendingGallery | undefined) ?? {}) };
+}
+
+export function queueGalleryAdd(
+  hostId: number,
+  id: number,
+  url: string,
+  title?: string | null,
+  isMain?: boolean
+) {
+  return mutateGallery(hostId, id, (gallery) => {
+    const add = [...gallery.add, { url, title: title ?? null }];
+    return {
+      ...gallery,
+      add,
+      main: isMain ? `add:${add.length - 1}` : gallery.main,
+    };
+  });
+}
+
+export function queueGalleryRemove(hostId: number, id: number, imageId: number) {
+  return mutateGallery(hostId, id, (gallery) => {
+    if (imageId < 0) {
+      const index = pendingImageIndex(imageId);
+      return { ...gallery, add: gallery.add.filter((_, i) => i !== index) };
+    }
+    return {
+      ...gallery,
+      removeIds: gallery.removeIds.includes(imageId)
+        ? gallery.removeIds
+        : [...gallery.removeIds, imageId],
+      order: gallery.order?.filter((existing) => existing !== imageId),
+    };
+  });
+}
+
+/** The gallery step's «save» — the full list of live images to keep, in order.
+ * Anything live and missing from it is a removal, matching what
+ * `reorderImages` does when it runs for real. */
+export function queueGalleryOrder(hostId: number, id: number, imageIds: number[]) {
+  return mutateGallery(hostId, id, (gallery) => ({
+    ...gallery,
+    order: imageIds.filter((imageId) => imageId > 0),
+  }));
+}
+
+export function queueGalleryMain(hostId: number, id: number, imageId: number) {
+  return mutateGallery(hostId, id, (gallery) => ({ ...gallery, main: imageId }));
+}
+
+/** Replays an approved gallery proposal onto the live rows. */
+export async function applyGalleryChange(
+  hostId: number,
+  residenceId: number,
+  gallery: PendingGallery
+) {
+  await assertOwnership(hostId, residenceId);
+  const { add = [], removeIds = [], order, main } = gallery;
+
+  if (removeIds.length > 0) {
+    const doomed = await prisma.residenceImage.findMany({
+      where: { id: { in: removeIds }, residenceId },
+      select: { url: true },
+    });
+    await prisma.residenceImage.deleteMany({ where: { id: { in: removeIds }, residenceId } });
+    await Promise.all(doomed.map((image) => deleteStoredFile(image.url)));
+  }
+
+  const created: number[] = [];
+  if (add.length > 0) {
+    let sortOrder = await prisma.residenceImage.count({ where: { residenceId } });
+    for (const image of add) {
+      const row = await prisma.residenceImage.create({
+        data: { residenceId, url: image.url, title: image.title, sortOrder: sortOrder++ },
+      });
+      created.push(row.id);
+    }
+  }
+
+  if (order?.length) {
+    await prisma.$transaction(
+      order.map((imageId, index) =>
+        prisma.residenceImage.updateMany({
+          where: { id: imageId, residenceId },
+          data: { sortOrder: index },
+        })
+      )
+    );
+  }
+
+  // `add:<index>` names one of the images this very call just created, so it
+  // can only be resolved to a real id here.
+  const mainId =
+    typeof main === "string" && main.startsWith("add:")
+      ? created[Number(main.slice(4))]
+      : typeof main === "number"
+        ? main
+        : null;
+  if (mainId) {
+    await prisma.residenceImage.updateMany({
+      where: { residenceId, isMain: true },
+      data: { isMain: false },
+    });
+    await prisma.residenceImage.updateMany({
+      where: { id: mainId, residenceId },
+      data: { isMain: true },
+    });
+  }
+}
+
 export async function updateSpecs(
   hostId: number,
   id: number,

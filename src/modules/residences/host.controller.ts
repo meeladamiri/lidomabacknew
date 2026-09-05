@@ -168,14 +168,38 @@ export async function updateDocuments(req: Request, res: Response) {
   if (files?.hostNationalCard?.[0]) patch.hostNationalCardUrl = fileToUrl(files.hostNationalCard[0]);
   if (files?.document?.[0]) patch.documentUrl = fileToUrl(files.document[0]);
   if (files?.ownerNationalCard?.[0]) patch.ownerNationalCardUrl = fileToUrl(files.ownerNationalCard[0]);
+  if (await queueForReview(req, "documents", patch)) {
+    return ok(res, { queuedForReview: true });
+  }
   const data = await service.updateDocuments(hostId(req), Number(req.params.id), patch);
   return ok(res, data);
 }
 
+/**
+ * The gallery gate.
+ *
+ * The file itself is stored either way — the host has to be able to see what
+ * they just uploaded — but on a published listing it becomes a proposal
+ * instead of a row, so guests keep seeing the approved gallery until an admin
+ * says otherwise. The response mirrors an image row closely enough for the
+ * wizard to render it, with the negative id that addresses a pending add.
+ */
 export async function uploadImage(req: Request, res: Response) {
   if (!req.file) throw AppError.badRequest("فایل تصویر ارسال نشده است");
   const url = fileToUrl(req.file);
   const isMain = req.body.isMain === undefined ? undefined : req.body.isMain === "true";
+
+  if (await service.queueGalleryAdd(hostId(req), Number(req.params.id), url, req.body.title, isMain)) {
+    const pending = await service.getPendingGallery(hostId(req), Number(req.params.id));
+    return created(res, {
+      id: service.pendingImageId(pending.add.length - 1),
+      url,
+      title: req.body.title ?? null,
+      isMain: !!isMain,
+      pendingReview: true,
+    });
+  }
+
   const data = await service.addImage(hostId(req), Number(req.params.id), url, req.body.title, isMain);
   return created(res, data);
 }
@@ -188,6 +212,16 @@ export async function uploadImage(req: Request, res: Response) {
  * time. Picking a different cover afterwards meant deleting and re-uploading.
  */
 export async function updateImage(req: Request, res: Response) {
+  // Only the cover choice changes what a guest sees; a title or alt edit on a
+  // published listing still rides the same gate rather than splitting the
+  // gallery across two review paths.
+  if (
+    req.body.isMain === true &&
+    (await service.queueGalleryMain(hostId(req), Number(req.params.id), Number(req.params.imageId)))
+  ) {
+    return ok(res, { queuedForReview: true });
+  }
+
   const data = await service.updateImage(
     hostId(req),
     Number(req.params.id),
@@ -198,11 +232,19 @@ export async function updateImage(req: Request, res: Response) {
 }
 
 export async function deleteImage(req: Request, res: Response) {
+  if (
+    await service.queueGalleryRemove(hostId(req), Number(req.params.id), Number(req.params.imageId))
+  ) {
+    return ok(res, { queuedForReview: true });
+  }
   await service.deleteImage(hostId(req), Number(req.params.id), Number(req.params.imageId));
   return ok(res, { success: true });
 }
 
 export async function reorderImages(req: Request, res: Response) {
+  if (await service.queueGalleryOrder(hostId(req), Number(req.params.id), req.body.imageIds)) {
+    return ok(res, { queuedForReview: true });
+  }
   await service.reorderImages(hostId(req), Number(req.params.id), req.body.imageIds, req.body.step);
   return ok(res, { success: true });
 }

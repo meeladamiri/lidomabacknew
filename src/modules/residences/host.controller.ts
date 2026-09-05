@@ -120,18 +120,14 @@ export async function updateRules(req: Request, res: Response) {
   return ok(res, data);
 }
 
+// نرخ‌گذاری و ظرفیت نیاز به بررسی کارشناس ندارند — بلافاصله روی سایت اعمال
+// می‌شوند، برخلاف specs/amenities/rules که از queueForReview بالا رد می‌شوند.
 export async function updatePricing(req: Request, res: Response) {
-  if (await queueForReview(req, "pricing", req.body)) {
-    return ok(res, { queuedForReview: true });
-  }
   const data = await service.updatePricing(hostId(req), Number(req.params.id), req.body);
   return ok(res, data);
 }
 
 export async function updateCapacity(req: Request, res: Response) {
-  if (await queueForReview(req, "capacity", req.body)) {
-    return ok(res, { queuedForReview: true });
-  }
   const data = await service.updateCapacity(hostId(req), Number(req.params.id), req.body);
   return ok(res, data);
 }

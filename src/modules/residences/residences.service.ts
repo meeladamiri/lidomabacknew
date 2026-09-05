@@ -311,11 +311,12 @@ export async function listHostResidences(hostId: number) {
     include: {
       images: { take: 1, orderBy: { sortOrder: "asc" } },
       rooms: { select: { id: true, name: true } },
-      // Only what the host-panel tabs need to bucket a listing — every open
-      // defect's severity/reviewRequestedAt, not the full row.
+      // Every open defect's severity/reviewRequestedAt (for the host-panel
+      // tabs) plus section/description (so the list card can show the
+      // specialist's own note without a second round-trip into the wizard).
       defects: {
         where: { resolvedAt: null },
-        select: { severity: true, reviewRequestedAt: true },
+        select: { section: true, severity: true, description: true, reviewRequestedAt: true },
       },
     },
     orderBy: { createdAt: "desc" },

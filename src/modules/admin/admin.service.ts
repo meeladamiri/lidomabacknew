@@ -488,7 +488,7 @@ function buildResidenceFilterWhere(filters: FilterCondition[]): Prisma.Residence
 
 // Residence list tabs ("همه اقامتگاه‌ها / ویلا و سوئیت / بوم‌گردی‌ها /
 // در انتظار تایید").
-export type ResidenceTab = "all" | "suit" | "boomgardi" | "hotel" | "pending";
+export type ResidenceTab = "all" | "suit" | "boomgardi" | "hotel" | "pending" | "edited";
 
 function residenceTabWhere(tab: ResidenceTab | undefined): Prisma.ResidenceWhereInput {
   switch (tab) {
@@ -500,6 +500,8 @@ function residenceTabWhere(tab: ResidenceTab | undefined): Prisma.ResidenceWhere
       return { type: "HOTEL" };
     case "pending":
       return { state: "PENDING" };
+    case "edited":
+      return { pendingChanges: { not: Prisma.JsonNull } };
     default:
       return {};
   }
@@ -575,14 +577,15 @@ export async function listResidences(params: {
 }
 
 export async function residenceTabCounts() {
-  const [all, suit, boomgardi, hotel, pending] = await Promise.all([
+  const [all, suit, boomgardi, hotel, pending, edited] = await Promise.all([
     prisma.residence.count(),
     prisma.residence.count({ where: { type: "SUIT" } }),
     prisma.residence.count({ where: { type: "BOOMGARDI" } }),
     prisma.residence.count({ where: { type: "HOTEL" } }),
     prisma.residence.count({ where: { state: "PENDING" } }),
+    prisma.residence.count({ where: { pendingChanges: { not: Prisma.JsonNull } } }),
   ]);
-  return { all, suit, boomgardi, hotel, pending };
+  return { all, suit, boomgardi, hotel, pending, edited };
 }
 
 // ---------- Bulk actions (list-view multi-select) ----------

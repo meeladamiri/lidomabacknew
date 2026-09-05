@@ -535,6 +535,21 @@ const EMPTY_GALLERY: PendingGallery = { add: [], removeIds: [] };
 export const pendingImageId = (index: number) => -(index + 1);
 const pendingImageIndex = (id: number) => -id - 1;
 
+/**
+ * Read-modify-write on the queued gallery, serialised per listing.
+ *
+ * `pendingChanges` is one JSON column, so appending a photo means reading the
+ * whole object, changing part of it and writing it back. Two uploads in flight
+ * at the same moment both read the same object and the second write lands on
+ * top of the first — the photo is stored, the response says it was queued, and
+ * it is simply not in the queue. Silent loss, and the more photos a host picks
+ * at once the likelier it gets.
+ *
+ * `FOR UPDATE` inside a transaction makes the second writer wait for the first
+ * to commit, so it reads the row that already includes it. The ownership check
+ * stays outside: it does not change, and holding the lock across it would just
+ * widen the window other writers queue behind.
+ */
 async function mutateGallery(
   hostId: number,
   id: number,
@@ -543,18 +558,24 @@ async function mutateGallery(
   const residence = await assertOwnership(hostId, id);
   if (residence.state !== "PUBLISHED") return false;
 
-  const existing = (residence.pendingChanges as Record<string, unknown> | null) ?? {};
-  const gallery = mutate({
-    ...EMPTY_GALLERY,
-    ...((existing.gallery as PendingGallery | undefined) ?? {}),
-  });
+  await prisma.$transaction(async (tx) => {
+    const [locked] = await tx.$queryRaw<{ pending_changes: unknown }[]>`
+      SELECT pending_changes FROM residences WHERE id = ${id} FOR UPDATE
+    `;
 
-  await prisma.residence.update({
-    where: { id },
-    data: {
-      pendingChanges: { ...existing, gallery } as unknown as Prisma.InputJsonValue,
-      pendingChangesSubmittedAt: new Date(),
-    },
+    const existing = (locked?.pending_changes as Record<string, unknown> | null) ?? {};
+    const gallery = mutate({
+      ...EMPTY_GALLERY,
+      ...((existing.gallery as PendingGallery | undefined) ?? {}),
+    });
+
+    await tx.residence.update({
+      where: { id },
+      data: {
+        pendingChanges: { ...existing, gallery } as unknown as Prisma.InputJsonValue,
+        pendingChangesSubmittedAt: new Date(),
+      },
+    });
   });
   return true;
 }
